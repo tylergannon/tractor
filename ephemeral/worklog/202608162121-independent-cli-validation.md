@@ -1,0 +1,1 @@
+friction: The first Codex-caller validation wrapper assigned to zsh's reserved read-only variable `status` after the provider call completed, so it could not certify that run's exit code -> use a neutral variable such as `agent_rc` in zsh evidence wrappers and preserve the uncaptured run separately.

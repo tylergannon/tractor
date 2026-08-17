@@ -1,0 +1,11 @@
+{
+  "source_nonce": "a14983b2-a7c7-4e00-8dd4-d2203bb48c39",
+  "warehouses": [
+    { "warehouse": "east", "line_count": 2, "total_cents": 54264 },
+    { "warehouse": "north", "line_count": 2, "total_cents": 36126 },
+    { "warehouse": "south", "line_count": 2, "total_cents": 57048 },
+    { "warehouse": "west", "line_count": 2, "total_cents": 70122 }
+  ],
+  "grand_total_cents": 217560,
+  "largest_warehouse": "west"
+}

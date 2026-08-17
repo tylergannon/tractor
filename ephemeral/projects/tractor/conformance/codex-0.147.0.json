@@ -1,0 +1,53 @@
+{
+  "adapter": "codex",
+  "native_harness": "codex",
+  "native_version": "codex-cli 0.147.0",
+  "model": "gpt-5.6-sol",
+  "started_at": "2026-08-17T03:12:03.378656Z",
+  "finished_at": "2026-08-17T03:15:24.353936Z",
+  "passed": true,
+  "scenarios": [
+    {
+      "name": "real_workspace_turn",
+      "passed": true,
+      "duration": 25183000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3338722017/01-real_workspace_turn"
+    },
+    {
+      "name": "continuation_and_reconstruction",
+      "passed": true,
+      "duration": 12636000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3338722017/02-continuation_and_reconstruction"
+    },
+    {
+      "name": "isolation_and_serialization",
+      "passed": true,
+      "duration": 37465000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3338722017/03-isolation_and_serialization"
+    },
+    {
+      "name": "invalid_inputs_and_public_errors",
+      "passed": true,
+      "duration": 3648000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3338722017/04-invalid_inputs_and_public_errors"
+    },
+    {
+      "name": "steering",
+      "passed": true,
+      "duration": 39023000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3338722017/05-steering"
+    },
+    {
+      "name": "interruption_and_timeout",
+      "passed": true,
+      "duration": 46286000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3338722017/06-interruption_and_timeout"
+    },
+    {
+      "name": "compaction",
+      "passed": true,
+      "duration": 36734000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3338722017/07-compaction"
+    }
+  ]
+}
