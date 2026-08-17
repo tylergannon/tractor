@@ -47,8 +47,8 @@ github.com/spf13/pflag v1.0.10/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3A
 github.com/stretchr/testify v0.0.0-20161117074351-18a02ba4a312/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXfy6kDkUVs=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/tylergannon/go-gen-jsonschema v0.11.3 h1:wMdLS3kHMqgWUDsJo1LaO2JhBL2Lsoo5ZmjiYJ3E0tM=
-github.com/tylergannon/go-gen-jsonschema v0.11.3/go.mod h1:pGhDY9FOuZ2HnZNbD8R0qtmr6D9cSGTHCIeHkr+pnqM=
+github.com/tylergannon/go-gen-jsonschema v1.0.0-rc.2 h1:rsd7ofJxI0KWx5fWx+q5K1if61zbrWqcsimnYh4tCjI=
+github.com/tylergannon/go-gen-jsonschema v1.0.0-rc.2/go.mod h1:pGhDY9FOuZ2HnZNbD8R0qtmr6D9cSGTHCIeHkr+pnqM=
 github.com/tylergannon/structtag v0.1.0 h1:Vn4ZEemGUtAfw9ddEtHQILKnIWqSWCSpciFTNPh1gcY=
 github.com/tylergannon/structtag v0.1.0/go.mod h1:Rjgg4hJfebaKNeyqoLh4n+zKhfVBdMyc7nBHIlQsVw0=
 go.yaml.in/yaml/v3 v3.0.4/go.mod h1:DhzuOOF2ATzADvBadXxruRBLzYTpT36CKvDb3+aBEFg=

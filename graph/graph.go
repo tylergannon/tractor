@@ -11,7 +11,7 @@ import (
 	jsonschema "github.com/tylergannon/go-gen-jsonschema"
 )
 
-//go:generate go tool gen-jsonschema gen --pretty --validate
+//go:generate go tool gen-jsonschema gen --pretty --validate --formats=both
 //go:generate go run ./internal/schemafix
 
 // Graph is a complete pipeline definition.

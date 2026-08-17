@@ -10,16 +10,34 @@ import (
 	"errors"
 	"fmt"
 
+	yaml "go.yaml.in/yaml/v4"
+
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 //go:embed jsonschema
 var __gen_jsonschema_fs embed.FS
 
-var errNoDiscriminator = errors.New("no discriminator property '!type' found")
+var errNoDiscriminator = errors.New("no discriminator property 'type' found")
 
 func __gen_jsonschema_panic(fname string, err error) {
 	panic(fmt.Sprintf("error reading %s from embedded FS: %s", fname, err.Error()))
+}
+
+func __gen_jsonschema_yamlNodeToJSON(node *yaml.Node) ([]byte, error) {
+	var value any
+	if err := node.Decode(&value); err != nil {
+		return nil, err
+	}
+	return json.Marshal(value)
+}
+
+func __gen_jsonschema_yamlToJSON(data []byte) ([]byte, error) {
+	var value any
+	if err := yaml.Load(data, &value, yaml.WithV4Defaults()); err != nil {
+		return nil, err
+	}
+	return json.Marshal(value)
 }
 
 // Compiled JSON schemas for validation, initialized once at startup.
@@ -69,6 +87,20 @@ func (Graph) ValidateJSON(data []byte) error {
 	return __gen_jsonschema_compiled_Graph.Validate(inst)
 }
 
+// ValidateYAML validates YAML against the JSON Schema for Graph.
+// YAML is interpreted using the schema's JSON property names.
+func (Graph) ValidateYAML(data []byte) error {
+	jsonData, err := __gen_jsonschema_yamlToJSON(data)
+	if err != nil {
+		return err
+	}
+	inst, err := jsonschema.UnmarshalJSON(bytes.NewReader(jsonData))
+	if err != nil {
+		return err
+	}
+	return __gen_jsonschema_compiled_Graph.Validate(inst)
+}
+
 // UnmarshalJSON is a generated custom json.Unmarshaler implementation for
 // Graph.
 func (g *Graph) UnmarshalJSON(data []byte) (err error) {
@@ -103,6 +135,21 @@ func (g *Graph) UnmarshalJSON(data []byte) (err error) {
 	}
 
 	*g = __next
+	return nil
+}
+
+// UnmarshalYAML translates YAML into the JSON data model before decoding
+// Graph with its JSON contract.
+func (g *Graph) UnmarshalYAML(node *yaml.Node) error {
+	data, err := __gen_jsonschema_yamlNodeToJSON(node)
+	if err != nil {
+		return err
+	}
+	var next Graph
+	if err := json.Unmarshal(data, &next); err != nil {
+		return err
+	}
+	*g = next
 	return nil
 }
 func __jsonUnmarshal__graph__Node__Graph__Nodes(data []byte) (Node, error) {

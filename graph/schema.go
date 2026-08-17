@@ -10,6 +10,7 @@ import (
 
 func (Graph) Schema() json.RawMessage   { panic("not implemented") }
 func (Graph) ValidateJSON([]byte) error { panic("not implemented") }
+func (Graph) ValidateYAML([]byte) error { panic("not implemented") }
 
 var _ = jsonschema.NewJSONSchemaMethod(
 	Graph.Schema,

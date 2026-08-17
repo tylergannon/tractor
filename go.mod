@@ -13,7 +13,7 @@ require (
 	github.com/roasbeef/claude-agent-sdk-go v1.1.1-0.20260713164230-efdbecd88a98
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
-	github.com/tylergannon/go-gen-jsonschema v0.11.3
+	github.com/tylergannon/go-gen-jsonschema v1.0.0-rc.2
 	go.yaml.in/yaml/v4 v4.0.0-rc.6
 )
 

@@ -1,6 +1,6 @@
 // Command schemafix applies the three structural constraints that
-// go-gen-jsonschema v0.11.3 cannot express directly: lexical string patterns,
-// an open opaque object, and a catch-all discriminated-union case.
+// go-gen-jsonschema cannot express directly: lexical string patterns, an open
+// opaque object, and a catch-all discriminated-union case.
 package main
 
 import (

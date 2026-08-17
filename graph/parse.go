@@ -25,11 +25,18 @@ func Parse(data []byte) (*Graph, error) {
 	if err := json.Unmarshal(data, &graph); err != nil {
 		return nil, fmt.Errorf("parse pipeline: %w", err)
 	}
+	if err := finishGraph(&graph); err != nil {
+		return nil, fmt.Errorf("parse pipeline: %w", err)
+	}
+	return &graph, nil
+}
+
+func finishGraph(graph *Graph) error {
 	seen := make(map[string]struct{}, len(graph.Nodes))
 	for _, node := range graph.Nodes {
 		id := node.Base().ID
 		if _, exists := seen[id]; exists {
-			return nil, fmt.Errorf("parse pipeline: duplicate node ID %q", id)
+			return fmt.Errorf("duplicate node ID %q", id)
 		}
 		seen[id] = struct{}{}
 		if node.Base().Edges == nil {
@@ -37,25 +44,24 @@ func Parse(data []byte) (*Graph, error) {
 		}
 	}
 	graph.applyDefaults()
-	return &graph, nil
+	return nil
 }
 
-// ParseYAML decodes one YAML document and passes its JSON-compatible value
-// through Parse, keeping the generated JSON decoder as the semantic authority.
+// ParseYAML validates and decodes one YAML pipeline using the generated
+// JSON Schema contract.
 func ParseYAML(data []byte) (*Graph, error) {
-	var value any
-	if err := yaml.Load(data, &value, yaml.WithV4Defaults()); err != nil {
+	if err := (Graph{}).ValidateYAML(data); err != nil {
 		return nil, fmt.Errorf("parse pipeline YAML: %w", err)
 	}
-	normalized, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("parse pipeline YAML: normalize: %w", err)
-	}
-	graph, err := Parse(normalized)
-	if err != nil {
+
+	var graph Graph
+	if err := yaml.Load(data, &graph, yaml.WithV4Defaults()); err != nil {
 		return nil, fmt.Errorf("parse pipeline YAML: %w", err)
 	}
-	return graph, nil
+	if err := finishGraph(&graph); err != nil {
+		return nil, fmt.Errorf("parse pipeline YAML: %w", err)
+	}
+	return &graph, nil
 }
 
 // NodeByID returns the node with id, if present.

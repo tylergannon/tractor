@@ -232,6 +232,8 @@ func TestParseRequiresStrictSingleJSONDocument(t *testing.T) {
 func TestParseYAMLAcceptsCommentsAndLiteralBlocks(t *testing.T) {
 	document := `
 name: yaml
+defaults:
+  max_retries: 2
 nodes:
   - id: start
     type: start
@@ -239,9 +241,15 @@ nodes:
   # Keep commands readable.
   - id: work
     type: tool
+    label: Run checks
     tool_command: |
       printf '%s\n' first
       printf '%s\n' second
+    edges: [{to: notify}]
+  - id: notify
+    type: notify.slack
+    custom:
+      channel: dev
     edges: [{to: done}]
   - id: done
     type: exit
@@ -254,6 +262,16 @@ nodes:
 	want := "printf '%s\\n' first\nprintf '%s\\n' second\n"
 	if tool.ToolCommand != want {
 		t.Fatalf("tool command = %q, want %q", tool.ToolCommand, want)
+	}
+	if tool.Label.Value != "Run checks" || !tool.Label.Present {
+		t.Fatalf("tool label = %#v", tool.Label)
+	}
+	notify := mustNode[*CustomNode](t, pipeline, "notify")
+	if notify.MaxRetries.Value != 2 || !notify.MaxRetries.Present {
+		t.Fatalf("custom max retries = %#v", notify.MaxRetries)
+	}
+	if notify.Custom.Values()["channel"] != "dev" {
+		t.Fatalf("custom values = %#v", notify.Custom.Values())
 	}
 }
 
@@ -401,7 +419,7 @@ func TestGeneratedSchemaIsCurrent(t *testing.T) {
 		}
 	}
 	commands := [][]string{
-		{"go", "tool", "gen-jsonschema", "gen", "--pretty", "--validate"},
+		{"go", "tool", "gen-jsonschema", "gen", "--pretty", "--validate", "--formats=both"},
 		{"go", "run", "./internal/schemafix"},
 	}
 	for _, arguments := range commands {
