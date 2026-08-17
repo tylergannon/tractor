@@ -1,0 +1,65 @@
+{
+  "nonce": "b306a703-dfa3-4030-9fe5-e141e602aad9",
+  "entries": [
+    {
+      "account": "alpha",
+      "batch": "A1",
+      "delta_cents": 6689
+    },
+    {
+      "account": "alpha",
+      "batch": "A2",
+      "delta_cents": -2256
+    },
+    {
+      "account": "alpha",
+      "batch": "A3",
+      "delta_cents": 749
+    },
+    {
+      "account": "bravo",
+      "batch": "B1",
+      "delta_cents": -7287
+    },
+    {
+      "account": "bravo",
+      "batch": "B2",
+      "delta_cents": 3239
+    },
+    {
+      "account": "bravo",
+      "batch": "B3",
+      "delta_cents": -416
+    },
+    {
+      "account": "charlie",
+      "batch": "C1",
+      "delta_cents": 7779
+    },
+    {
+      "account": "charlie",
+      "batch": "C2",
+      "delta_cents": -1770
+    },
+    {
+      "account": "charlie",
+      "batch": "C3",
+      "delta_cents": 703
+    },
+    {
+      "account": "delta",
+      "batch": "D1",
+      "delta_cents": -8181
+    },
+    {
+      "account": "delta",
+      "batch": "D2",
+      "delta_cents": 1295
+    },
+    {
+      "account": "delta",
+      "batch": "D3",
+      "delta_cents": -306
+    }
+  ]
+}

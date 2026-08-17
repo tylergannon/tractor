@@ -1,0 +1,35 @@
+{
+  "source_nonce": "b306a703-dfa3-4030-9fe5-e141e602aad9",
+  "accounts": [
+    {
+      "account": "alpha",
+      "entry_count": 3,
+      "credits_cents": 7438,
+      "debits_cents": 2256,
+      "balance_cents": 5182
+    },
+    {
+      "account": "bravo",
+      "entry_count": 3,
+      "credits_cents": 3239,
+      "debits_cents": 7703,
+      "balance_cents": -4464
+    },
+    {
+      "account": "charlie",
+      "entry_count": 3,
+      "credits_cents": 8482,
+      "debits_cents": 1770,
+      "balance_cents": 6712
+    },
+    {
+      "account": "delta",
+      "entry_count": 3,
+      "credits_cents": 1295,
+      "debits_cents": 8487,
+      "balance_cents": -7192
+    }
+  ],
+  "net_cents": 238,
+  "largest_absolute_balance": "delta"
+}

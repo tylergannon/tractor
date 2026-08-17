@@ -1,0 +1,53 @@
+{
+  "nonce": "c0e47e50-093c-4d5d-84af-d9ea86a0b185",
+  "inventory": [
+    {
+      "warehouse": "north",
+      "sku": "N-amber",
+      "quantity": 6,
+      "unit_cents": 8440
+    },
+    {
+      "warehouse": "north",
+      "sku": "N-cobalt",
+      "quantity": 5,
+      "unit_cents": 8598
+    },
+    {
+      "warehouse": "south",
+      "sku": "S-jade",
+      "quantity": 3,
+      "unit_cents": 8736
+    },
+    {
+      "warehouse": "south",
+      "sku": "S-onyx",
+      "quantity": 10,
+      "unit_cents": 8364
+    },
+    {
+      "warehouse": "east",
+      "sku": "E-coral",
+      "quantity": 9,
+      "unit_cents": 9138
+    },
+    {
+      "warehouse": "east",
+      "sku": "E-ivory",
+      "quantity": 9,
+      "unit_cents": 8490
+    },
+    {
+      "warehouse": "west",
+      "sku": "W-mint",
+      "quantity": 9,
+      "unit_cents": 8856
+    },
+    {
+      "warehouse": "west",
+      "sku": "W-ruby",
+      "quantity": 8,
+      "unit_cents": 8424
+    }
+  ]
+}
