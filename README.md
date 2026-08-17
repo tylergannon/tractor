@@ -15,6 +15,11 @@ server from the plugin's own source with:
 go run ./cmd/tractor mcp
 ```
 
+The source-distributed plugin therefore requires Go 1.26 or newer. The first
+launch may download modules; subsequent launches reuse Go's build cache. Building
+from the plugin snapshot is intentional: the MCP server and graph language are
+always compiled from the same revision.
+
 The server exposes deferred tools to validate, start, monitor, steer, and stop
 pipeline runs. Their input schemas contain only operational arguments such as
 pipeline and workspace paths; they do not embed Tractor's graph language.
@@ -26,3 +31,6 @@ revision and cannot acquire a separately maintained schema.
 Run the server directly with `tractor mcp` when Tractor is installed as a
 binary. MCP clients should communicate over stdin and stdout; diagnostics and
 run output are written elsewhere so they cannot corrupt the protocol stream.
+Runs belong to the stdio server session and are stopped when that session
+closes, preventing an unloaded plugin from leaving unsupervised agent work
+running in the background.

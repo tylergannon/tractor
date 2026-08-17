@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -16,6 +18,8 @@ import (
 	"github.com/tylergannon/tractor/engine"
 	"github.com/tylergannon/tractor/graph"
 )
+
+const slowPipeline = `{"name":"slow","nodes":[{"id":"start","type":"start","edges":[{"to":"wait"}]},{"id":"wait","type":"tool","tool_command":"sleep 30","edges":[{"to":"done"}]},{"id":"done","type":"exit"}]}`
 
 func TestMCPStdioListsCompactToolsAndServesCurrentGraphSchema(t *testing.T) {
 	session, ctx := connectToTractorMCP(t)
@@ -139,6 +143,135 @@ func TestMCPStdioStartsAndObservesRealPipelineRun(t *testing.T) {
 	if checkpoint.CurrentNode != "done" || checkpoint.NextNode != "" {
 		t.Fatalf("checkpoint = %#v", checkpoint)
 	}
+}
+
+func TestMCPStdioSteersAndStopsRunningPipeline(t *testing.T) {
+	session, ctx := connectToTractorMCP(t)
+	start := startMCPRun(t, ctx, session, slowPipeline)
+	waitForFile(t, filepath.Join(start.LogsRoot, "manifest.json"))
+
+	steered, err := callTool(ctx, session, "steer_run", map[string]any{
+		"run_id": start.RunID,
+		"text":   "continue carefully",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steered.IsError {
+		t.Fatalf("steer_run returned an error: %#v", steered.Content)
+	}
+	steer := decodeStructured[steerRunOutput](t, steered.StructuredContent)
+	if steer.Accepted || steer.HTTPStatus != 409 {
+		t.Fatalf("steer_run output = %#v", steer)
+	}
+
+	stopped, err := callTool(ctx, session, "stop_run", map[string]any{"run_id": start.RunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.IsError {
+		t.Fatalf("stop_run returned an error: %#v", stopped.Content)
+	}
+	if output := decodeStructured[stopRunOutput](t, stopped.StructuredContent); output.Status != "STOPPING" {
+		t.Fatalf("stop_run output = %#v", output)
+	}
+	status := waitForRunStatus(t, ctx, session, start.RunID)
+	if status.Status != "STOPPED" {
+		t.Fatalf("terminal status = %#v", status)
+	}
+
+	steered, err = callTool(ctx, session, "steer_run", map[string]any{
+		"run_id": start.RunID,
+		"text":   "too late",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if steered.IsError {
+		t.Fatalf("steer_run on stopped run returned an error: %#v", steered.Content)
+	}
+	steer = decodeStructured[steerRunOutput](t, steered.StructuredContent)
+	if steer.Accepted || steer.HTTPStatus != 409 || !strings.Contains(steer.Message, "STOPPED") {
+		t.Fatalf("steer_run on stopped run = %#v", steer)
+	}
+}
+
+func TestMCPStdioShutdownStopsRunningPipeline(t *testing.T) {
+	session, ctx := connectToTractorMCP(t)
+	start := startMCPRun(t, ctx, session, slowPipeline)
+	waitForFile(t, filepath.Join(start.LogsRoot, "manifest.json"))
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for processExists(start.PID) {
+		if time.Now().After(deadline) {
+			t.Fatalf("Tractor child process %d survived MCP shutdown", start.PID)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func startMCPRun(t *testing.T, ctx context.Context, session *client.Client, pipeline string) startRunOutput {
+	t.Helper()
+	workdir := t.TempDir()
+	pipelinePath := filepath.Join(workdir, "pipeline.json")
+	if err := os.WriteFile(pipelinePath, []byte(pipeline), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started, err := callTool(ctx, session, "start_run", map[string]any{
+		"pipeline_path": pipelinePath,
+		"workdir":       workdir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started.IsError {
+		t.Fatalf("start_run returned an error: %#v", started.Content)
+	}
+	return decodeStructured[startRunOutput](t, started.StructuredContent)
+}
+
+func waitForRunStatus(t *testing.T, ctx context.Context, session *client.Client, runID string) runStatusOutput {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		result, err := callTool(ctx, session, "get_run_status", map[string]any{"run_id": runID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsError {
+			t.Fatalf("get_run_status returned an error: %#v", result.Content)
+		}
+		status := decodeStructured[runStatusOutput](t, result.StructuredContent)
+		if status.Status != "RUNNING" && status.Status != "STOPPING" {
+			return status
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run did not finish: %#v", status)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("file did not appear: %s", path)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func processExists(pid int) bool {
+	process, err := os.FindProcess(pid)
+	return err == nil && process.Signal(syscall.Signal(0)) == nil
 }
 
 func connectToTractorMCP(t *testing.T) (*client.Client, context.Context) {

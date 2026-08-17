@@ -1,0 +1,7 @@
+{"id":"7876481cebd63c39d568971201b9c103","name":"mcp-live-proof","ts":"2026-08-17T23:47:34.199552Z","type":"PipelineStarted"}
+{"node_id":"start","ts":"2026-08-17T23:47:34.199768Z","type":"CheckpointSaved"}
+{"index":1,"name":"start","ts":"2026-08-17T23:47:34.199825Z","type":"StageStarted"}
+{"duration":"157.208µs","index":1,"name":"start","next":"done","ts":"2026-08-17T23:47:34.199982Z","type":"StageCompleted"}
+{"node_id":"start","ts":"2026-08-17T23:47:34.200146Z","type":"CheckpointSaved"}
+{"node_id":"done","ts":"2026-08-17T23:47:34.200294Z","type":"CheckpointSaved"}
+{"duration":"776.084µs","ts":"2026-08-17T23:47:34.200327Z","type":"PipelineCompleted"}

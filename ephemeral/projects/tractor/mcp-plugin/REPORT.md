@@ -42,8 +42,8 @@ start the pipeline, poll its status, and load its checkpoint.
   "start_schema_bytes": 554,
   "graph_schema_sha256": "ee9310f1743fbe4cf2bb99565529379a05318e95b2e95198156040b47307b350",
   "schema_matches_graph_type": true,
-  "run_id": "7a93ba69ad835c253eb25766365c151d",
-  "run_pid": 36389,
+  "run_id": "187c3c56611e368754e40bfdd338d989",
+  "run_pid": 43187,
   "run_status": "COMPLETED",
   "exit_code": 0,
   "current_node": "done",
@@ -55,7 +55,12 @@ start the pipeline, poll its status, and load its checkpoint.
 The child process also wrote `COMPLETED` to `mcp-stdout.log`, nothing to
 `mcp-stderr.log`, and a `PipelineCompleted` event to `timeline.jsonl`. Its
 checkpoint SHA-256 is
-`b93a76b659fd9b100df8ca5c9ed0b267d66e40035f9a89a40c30bd08cb000eb9`.
+`0190d4c07bb2fb0b8da0b5e679bc8d68efda5e34aaa06ef2ee38c06b97b9dc29`.
+
+Focused stdio integration tests additionally start a 30-second tool pipeline,
+reach its real Unix-socket steering endpoint, stop it through MCP, and assert
+that closing the stdio client terminates an active child process. This covers
+the lifecycle operations that the minimal completed pipeline cannot exercise.
 
 ## Package validation
 

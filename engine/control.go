@@ -37,6 +37,22 @@ type controlServer struct {
 	temporaryRoot string
 }
 
+// LoadControlSocket returns the control socket recorded for a run.
+func LoadControlSocket(logsRoot string) (string, error) {
+	raw, err := os.ReadFile(filepath.Join(logsRoot, "manifest.json"))
+	if err != nil {
+		return "", fmt.Errorf("read run manifest: %w", err)
+	}
+	var manifest runManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return "", fmt.Errorf("decode run manifest: %w", err)
+	}
+	if manifest.ControlSocket == "" {
+		return "", errors.New("run manifest has no control socket")
+	}
+	return manifest.ControlSocket, nil
+}
+
 func (r *Runner) startControlServer(store *runStore) (*controlServer, runManifest, error) {
 	socketPath := filepath.Join(store.root, "control.sock")
 	temporaryRoot := ""
