@@ -1,0 +1,10 @@
+{"id":"beb4a1bc0da31b429240c704359f0175","name":"timestamp-smoke","ts":"2026-08-17T13:57:54.017921Z","type":"PipelineStarted"}
+{"node_id":"start","ts":"2026-08-17T13:57:54.01814Z","type":"CheckpointSaved"}
+{"index":1,"name":"start","ts":"2026-08-17T13:57:54.018208Z","type":"StageStarted"}
+{"duration":"147.833µs","index":1,"name":"start","next":"check","ts":"2026-08-17T13:57:54.018356Z","type":"StageCompleted"}
+{"node_id":"start","ts":"2026-08-17T13:57:54.018517Z","type":"CheckpointSaved"}
+{"index":2,"name":"check","ts":"2026-08-17T13:57:54.018569Z","type":"StageStarted"}
+{"duration":"3.766833ms","index":2,"name":"check","next":"exit","ts":"2026-08-17T13:57:54.022339Z","type":"StageCompleted"}
+{"node_id":"check","ts":"2026-08-17T13:57:54.022521Z","type":"CheckpointSaved"}
+{"node_id":"exit","ts":"2026-08-17T13:57:54.022659Z","type":"CheckpointSaved"}
+{"duration":"4.767209ms","ts":"2026-08-17T13:57:54.022688Z","type":"PipelineCompleted"}

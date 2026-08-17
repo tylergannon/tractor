@@ -1,0 +1,4 @@
+{"branch":"left","index":0,"ts":"2026-08-17T14:26:08.715684Z","type":"ParallelBranchStarted"}
+{"branch":"right","index":1,"ts":"2026-08-17T14:26:08.715773Z","type":"ParallelBranchStarted"}
+{"branch":"left","index":4,"name":"left","ts":"2026-08-17T14:26:08.715899Z","type":"StageStarted","workdir":"/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/final/parallel/logs/worktrees-1541366887/branch-001"}
+{"branch":"right","index":5,"name":"right","ts":"2026-08-17T14:26:08.715948Z","type":"StageStarted","workdir":"/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/final/parallel/logs/worktrees-1541366887/branch-002"}

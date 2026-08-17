@@ -1,0 +1,34 @@
+[
+  {
+    "branch_id": "left",
+    "outcome": {
+      "next": "combine",
+      "notes": "exit 0: left completed"
+    },
+    "notes": "exit 0: left completed",
+    "path": [
+      "left"
+    ],
+    "workdir": "/tmp/r2-par/logs/worktrees-883991409/branch-001",
+    "stage_dirs": [
+      "/tmp/r2-par/logs/stages/000004-left"
+    ],
+    "segments": []
+  },
+  {
+    "branch_id": "right",
+    "outcome": {
+      "next": "combine",
+      "notes": "exit 0: right completed"
+    },
+    "notes": "exit 0: right completed",
+    "path": [
+      "right"
+    ],
+    "workdir": "/tmp/r2-par/logs/worktrees-883991409/branch-002",
+    "stage_dirs": [
+      "/tmp/r2-par/logs/stages/000005-right"
+    ],
+    "segments": []
+  }
+]

@@ -191,7 +191,7 @@ func (r *Runner) walkBranch(currentID, joinID, workdir string, state *engineStat
 		}
 
 		result.Path = append(result.Path, currentID)
-		execution, err := r.executeNode(node, state, store, workdir)
+		execution, err := r.executeNode(node, state, store, workdir, result.BranchID)
 		result.StageDirs = append(result.StageDirs, execution.stageDirs...)
 		if execution.outcome.Notes != "" {
 			result.Notes = execution.outcome.Notes

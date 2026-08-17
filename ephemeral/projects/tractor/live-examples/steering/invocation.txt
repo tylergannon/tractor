@@ -1,0 +1,1 @@
+/tmp/tractor-live-examples run examples/steering/external-steering.json --workdir ephemeral/projects/tractor/live-examples/steering/workspace --logs ephemeral/projects/tractor/live-examples/steering/logs

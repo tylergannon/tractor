@@ -1,0 +1,13 @@
+{"id":"810b16f9be8d97f0caba33324b9ade15","name":"external-steering","ts":"2026-08-17T14:11:55.147572Z","type":"PipelineStarted"}
+{"node_id":"start","ts":"2026-08-17T14:11:55.147802Z","type":"CheckpointSaved"}
+{"index":1,"name":"start","ts":"2026-08-17T14:11:55.147865Z","type":"StageStarted"}
+{"duration":"169.917µs","index":1,"name":"start","next":"work","ts":"2026-08-17T14:11:55.148035Z","type":"StageCompleted"}
+{"node_id":"start","ts":"2026-08-17T14:11:55.14822Z","type":"CheckpointSaved"}
+{"index":2,"name":"work","ts":"2026-08-17T14:11:55.148281Z","type":"StageStarted"}
+{"duration":"28.82761925s","index":2,"name":"work","next":"verify","ts":"2026-08-17T14:12:23.975941Z","type":"StageCompleted"}
+{"node_id":"work","ts":"2026-08-17T14:12:23.976216Z","type":"CheckpointSaved"}
+{"index":3,"name":"verify","ts":"2026-08-17T14:12:23.976276Z","type":"StageStarted"}
+{"duration":"5.616625ms","index":3,"name":"verify","next":"exit","ts":"2026-08-17T14:12:23.981894Z","type":"StageCompleted"}
+{"node_id":"verify","ts":"2026-08-17T14:12:23.982082Z","type":"CheckpointSaved"}
+{"node_id":"exit","ts":"2026-08-17T14:12:23.982228Z","type":"CheckpointSaved"}
+{"duration":"28.834641875s","ts":"2026-08-17T14:12:23.982254Z","type":"PipelineCompleted"}

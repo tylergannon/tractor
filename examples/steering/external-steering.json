@@ -1,0 +1,34 @@
+{
+  "name": "external-steering",
+  "goal": "Prove that a live Codex turn receives and follows external steering",
+  "defaults": {
+    "llm_provider": "openai",
+    "llm_model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "timeout": "90s"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "edges": [{ "to": "work" }]
+    },
+    {
+      "id": "work",
+      "type": "codergen",
+      "prompt": "Run one foreground shell command that writes ready followed by a newline to steering-ready.txt, sleeps for 15 seconds, and then exits. Wait for it. An external operator will send a steering instruction while that command is running. After it finishes, follow the new instruction exactly. Do not create steering-received.txt unless the external instruction requests it. Keep final notes to one sentence.",
+      "fidelity": "none",
+      "edges": [{ "to": "verify" }]
+    },
+    {
+      "id": "verify",
+      "type": "tool",
+      "tool_command": "test \"$(cat steering-received.txt)\" = TRACTOR_STEERING_RECEIVED",
+      "edges": [{ "to": "exit" }]
+    },
+    {
+      "id": "exit",
+      "type": "exit"
+    }
+  ]
+}

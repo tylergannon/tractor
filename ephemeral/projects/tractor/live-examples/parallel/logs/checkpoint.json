@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-08-17T13:55:57.967886Z",
+  "current_node": "exit",
+  "next_node": "",
+  "completed_nodes": [
+    "start",
+    "prepare",
+    "fan_out",
+    "combine",
+    "verify"
+  ],
+  "node_visits": {
+    "combine": 1,
+    "fan_out": 1,
+    "left": 1,
+    "prepare": 1,
+    "right": 1,
+    "start": 1,
+    "verify": 1
+  },
+  "node_attempts": {
+    "combine": 1,
+    "fan_out": 1,
+    "left": 1,
+    "prepare": 1,
+    "right": 1,
+    "start": 1,
+    "verify": 1
+  },
+  "seq": 7,
+  "retry_visit": false,
+  "last_stage": "verify",
+  "last_response": "exit 0: parallel fan-in verified",
+  "sessions": {
+    "\u0000none:combine": {
+      "harness": "codex",
+      "session_id": "01a01001-2242-7c81-9ae6-8d174c20d9e2",
+      "workdir": "/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/parallel/workspace"
+    }
+  }
+}

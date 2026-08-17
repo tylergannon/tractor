@@ -1,0 +1,7 @@
+{
+  "id": "b6bd850707a383ab30c543df8f49978f",
+  "name": "fan-out-fan-in",
+  "goal": "Prove isolated concurrent branches and consolidation in the main workspace",
+  "started_at": "2026-08-17T14:10:54.703529Z",
+  "control_socket": "/tmp/r2-par/logs/control.sock"
+}

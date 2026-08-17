@@ -3,6 +3,7 @@ package engine
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -94,11 +95,15 @@ func (s *runStore) saveCheckpoint(checkpoint Checkpoint) error {
 func (s *runStore) appendTimeline(event timelineEvent) error {
 	s.timelineMu.Lock()
 	defer s.timelineMu.Unlock()
+	stamped := maps.Clone(event)
+	if _, exists := stamped["ts"]; !exists {
+		stamped["ts"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 	file, err := os.OpenFile(filepath.Join(s.root, "timeline.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open timeline: %w", err)
 	}
-	encodeErr := json.NewEncoder(file).Encode(event)
+	encodeErr := json.NewEncoder(file).Encode(stamped)
 	closeErr := file.Close()
 	if encodeErr != nil {
 		return fmt.Errorf("append timeline: %w", encodeErr)

@@ -1,0 +1,11 @@
+status
+## main
+?? tractor-fan-in-proof/
+worktrees
+worktree /Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/final/parallel/workspace
+HEAD ed53c9c722e640f89cc76085d6ec2f91de266601
+branch refs/heads/main
+
+head
+ed53c9c (HEAD -> main) base
+stashes

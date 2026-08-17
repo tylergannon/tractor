@@ -1,0 +1,1 @@
+/tmp/tractor-final-dbbf5cb run examples/steering/external-steering.json --workdir ephemeral/projects/tractor/live-examples/final/steering/workspace --logs ephemeral/projects/tractor/live-examples/final/steering/logs

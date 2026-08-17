@@ -1,0 +1,3 @@
+{
+  "notes": "Created `tractor-fan-in-proof` with verified copies `left.txt` and `right.txt`. Confirmed branch isolation and overlapping intervals (`1786974899–1786974903`). `summary.txt` contains exactly:\n\nisolation=verified\noverlap=verified\n\nNeither branch worktree was altered.\n\n"
+}

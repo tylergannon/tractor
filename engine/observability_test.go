@@ -85,6 +85,30 @@ func TestRunnerTimelineNarratesRetriesParallelBranchesAndCheckpoints(t *testing.
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("timeline event types =\n%v\nwant\n%v", got, want)
 	}
+	branchWorkdirs := map[string]string{}
+	for _, event := range events {
+		timestamp, ok := event["ts"].(string)
+		if !ok {
+			t.Fatalf("timeline event has no timestamp: %#v", event)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+			t.Fatalf("timeline timestamp %q: %v", timestamp, err)
+		}
+		name, _ := event["name"].(string)
+		if name == "left" || name == "right" {
+			workdir, ok := event["workdir"].(string)
+			if event["branch"] != name || !ok || workdir == "" {
+				t.Fatalf("branch stage is not attributed: %#v", event)
+			}
+			if previous := branchWorkdirs[name]; previous != "" && previous != workdir {
+				t.Fatalf("branch %q changed workdir from %q to %q", name, previous, workdir)
+			}
+			branchWorkdirs[name] = workdir
+		}
+	}
+	if len(branchWorkdirs) != 2 || branchWorkdirs["left"] == branchWorkdirs["right"] {
+		t.Fatalf("branch workdirs = %#v", branchWorkdirs)
+	}
 	if events[6]["will_retry"] != true || events[7]["attempt"] != float64(2) {
 		t.Fatalf("retry events = %#v, %#v", events[6], events[7])
 	}
@@ -144,7 +168,8 @@ func TestControlSocketAcceptsSteeringAndAuditsActiveStage(t *testing.T) {
 	if err := json.Unmarshal(manifestRaw, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Name != pipeline.Name || manifest.Goal != pipeline.Goal || manifest.ID == "" || manifest.StartedAt.IsZero() {
+	if manifest.Name != pipeline.Name || manifest.Goal != pipeline.Goal || manifest.Workdir != runner.config.Workdir ||
+		manifest.ID == "" || manifest.StartedAt.IsZero() {
 		t.Fatalf("manifest metadata = %#v", manifest)
 	}
 	parts := []harness.ContentPart{{Type: harness.ContentPartText, Text: "change course"}}

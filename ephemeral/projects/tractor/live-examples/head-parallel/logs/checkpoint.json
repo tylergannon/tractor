@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-08-17T14:11:46.239315Z",
+  "current_node": "exit",
+  "next_node": "",
+  "completed_nodes": [
+    "start",
+    "prepare",
+    "fan_out",
+    "combine",
+    "verify"
+  ],
+  "node_visits": {
+    "combine": 1,
+    "fan_out": 1,
+    "left": 1,
+    "prepare": 1,
+    "right": 1,
+    "start": 1,
+    "verify": 1
+  },
+  "node_attempts": {
+    "combine": 1,
+    "fan_out": 1,
+    "left": 1,
+    "prepare": 1,
+    "right": 1,
+    "start": 1,
+    "verify": 1
+  },
+  "seq": 7,
+  "retry_visit": false,
+  "last_stage": "verify",
+  "last_response": "exit 0: parallel fan-in verified",
+  "sessions": {
+    "\u0000none:combine": {
+      "harness": "codex",
+      "session_id": "01a0100f-b2c8-72a3-826b-41efd06aa0b5",
+      "workdir": "/tmp/r2-par/workspace"
+    }
+  }
+}

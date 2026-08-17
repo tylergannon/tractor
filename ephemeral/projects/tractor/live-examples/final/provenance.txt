@@ -1,0 +1,4 @@
+commit=dbbf5cba726aa16747e33f57380d7688cfcd696f
+binary=/tmp/tractor-final-dbbf5cb
+sha256=bcd629f54dab28024ff6c03f88b28d9939ed130c20002ff6ab8c4ce868ae8370
+go=go1.26.6 darwin/arm64

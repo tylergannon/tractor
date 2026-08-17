@@ -1,0 +1,7 @@
+{
+  "id": "810b16f9be8d97f0caba33324b9ade15",
+  "name": "external-steering",
+  "goal": "Prove that a live Codex turn receives and follows external steering",
+  "started_at": "2026-08-17T14:11:55.147466Z",
+  "control_socket": "/tmp/r2-steer/logs/control.sock"
+}

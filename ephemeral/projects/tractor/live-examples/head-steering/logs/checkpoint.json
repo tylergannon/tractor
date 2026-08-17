@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-08-17T14:12:23.982103Z",
+  "current_node": "exit",
+  "next_node": "",
+  "completed_nodes": [
+    "start",
+    "work",
+    "verify"
+  ],
+  "node_visits": {
+    "start": 1,
+    "verify": 1,
+    "work": 1
+  },
+  "node_attempts": {
+    "start": 1,
+    "verify": 1,
+    "work": 1
+  },
+  "seq": 3,
+  "retry_visit": false,
+  "last_stage": "verify",
+  "last_response": "exit 0: ",
+  "sessions": {
+    "\u0000none:work": {
+      "harness": "codex",
+      "session_id": "01a01010-9055-7501-be72-f0b89cf82474",
+      "workdir": "/tmp/r2-steer/workspace"
+    }
+  }
+}

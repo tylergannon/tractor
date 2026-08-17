@@ -307,7 +307,7 @@ func (r *Runner) walk(state *engineState, store *runStore, currentID string) (Ru
 		}
 
 		r.beginTopLevel(node.Base().ID, node.NodeType())
-		execution, executeErr := r.executeNode(node, state, store, r.config.Workdir)
+		execution, executeErr := r.executeNode(node, state, store, r.config.Workdir, "")
 		r.clearTopLevel(node.Base().ID)
 		if executeErr != nil {
 			return RunResult{}, executeErr
@@ -335,7 +335,7 @@ func (r *Runner) saveCheckpoint(store *runStore, checkpoint Checkpoint, nodeID s
 	return store.appendTimeline(timelineEvent{"type": "CheckpointSaved", "node_id": nodeID})
 }
 
-func (r *Runner) executeNode(node graph.Node, state *engineState, store *runStore, workdir string) (nodeExecution, error) {
+func (r *Runner) executeNode(node graph.Node, state *engineState, store *runStore, workdir, branchID string) (nodeExecution, error) {
 	offered, err := r.offeredSuccessors(node, state)
 	if err != nil {
 		return nodeExecution{runErr: terminalError(err.Error())}, nil
@@ -347,7 +347,7 @@ func (r *Runner) executeNode(node graph.Node, state *engineState, store *runStor
 	if resolveErr != nil {
 		return nodeExecution{runErr: resolveErr}, nil
 	}
-	outcome, nextID, runErr, attempted, stageDirs, err := r.executeWithRetry(node, handler, offered, state, store, workdir)
+	outcome, nextID, runErr, attempted, stageDirs, err := r.executeWithRetry(node, handler, offered, state, store, workdir, branchID)
 	execution := nodeExecution{outcome: outcome, nextID: nextID, runErr: runErr, attempted: attempted, stageDirs: stageDirs}
 	if err != nil {
 		return execution, err
@@ -391,7 +391,7 @@ func (r *Runner) executeWithRetry(
 	offered []graph.Edge,
 	state *engineState,
 	store *runStore,
-	workdir string,
+	workdir, branchID string,
 ) (harness.Outcome, string, *harness.Error, bool, []string, error) {
 	maxRetries := resolvedMaxRetries(node, r.graph.Defaults)
 	if maxRetries < 0 {
@@ -410,11 +410,11 @@ func (r *Runner) executeWithRetry(
 		stageDirs = append(stageDirs, stage.Dir)
 		r.setActiveStage(node.Base().ID, stage.Dir)
 		stageStarted := time.Now()
-		if err := store.appendTimeline(timelineEvent{
+		if err := store.appendTimeline(stageEvent(branchID, workdir, timelineEvent{
 			"type":  "StageStarted",
 			"name":  node.Base().ID,
 			"index": stage.Seq,
-		}); err != nil {
+		})); err != nil {
 			return harness.Outcome{}, "", nil, attempt > 1, stageDirs, err
 		}
 		if attempt == 1 {
@@ -435,13 +435,13 @@ func (r *Runner) executeWithRetry(
 			if err != nil {
 				return outcome, "", terminalError(err.Error()), true, stageDirs, nil
 			}
-			if err := store.appendTimeline(timelineEvent{
+			if err := store.appendTimeline(stageEvent(branchID, workdir, timelineEvent{
 				"type":     "StageCompleted",
 				"name":     node.Base().ID,
 				"index":    stage.Seq,
 				"duration": time.Since(stageStarted).String(),
 				"next":     nextID,
-			}); err != nil {
+			})); err != nil {
 				return harness.Outcome{}, "", nil, true, stageDirs, err
 			}
 			return outcome, nextID, nil, true, stageDirs, nil
@@ -450,26 +450,26 @@ func (r *Runner) executeWithRetry(
 			return harness.Outcome{}, "", nil, true, stageDirs, err
 		}
 		willRetry := runErr.Category == harness.ErrorRetryable && attempt < maxAttempts
-		if err := store.appendTimeline(timelineEvent{
+		if err := store.appendTimeline(stageEvent(branchID, workdir, timelineEvent{
 			"type":       "StageFailed",
 			"name":       node.Base().ID,
 			"index":      stage.Seq,
 			"error":      runErr.Message,
 			"will_retry": willRetry,
-		}); err != nil {
+		})); err != nil {
 			return harness.Outcome{}, "", nil, true, stageDirs, err
 		}
 		if !willRetry {
 			return harness.Outcome{}, "", runErr, true, stageDirs, nil
 		}
 		delay := r.retryDelay(attempt)
-		if err := store.appendTimeline(timelineEvent{
+		if err := store.appendTimeline(stageEvent(branchID, workdir, timelineEvent{
 			"type":    "StageRetrying",
 			"name":    node.Base().ID,
 			"index":   stage.Seq,
 			"attempt": attempt + 1,
 			"delay":   delay.String(),
-		}); err != nil {
+		})); err != nil {
 			return harness.Outcome{}, "", nil, true, stageDirs, err
 		}
 		if !waitForBackoff(delay, r.stop) {
@@ -477,6 +477,14 @@ func (r *Runner) executeWithRetry(
 		}
 	}
 	panic("unreachable")
+}
+
+func stageEvent(branchID, workdir string, event timelineEvent) timelineEvent {
+	if branchID != "" {
+		event["branch"] = branchID
+		event["workdir"] = workdir
+	}
+	return event
 }
 
 func resolvedMaxRetries(node graph.Node, defaults graph.Defaults) int {

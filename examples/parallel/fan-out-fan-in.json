@@ -1,0 +1,58 @@
+{
+  "name": "fan-out-fan-in",
+  "goal": "Prove isolated concurrent branches and consolidation in the main workspace",
+  "defaults": {
+    "timeout": "90s"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "edges": [{ "to": "prepare" }]
+    },
+    {
+      "id": "prepare",
+      "type": "tool",
+      "tool_command": "rm -rf tractor-fan-in-proof; rm -f parallel-left.txt parallel-right.txt",
+      "edges": [{ "to": "fan_out" }]
+    },
+    {
+      "id": "fan_out",
+      "type": "parallel",
+      "max_parallel": 2,
+      "edges": [{ "to": "left" }, { "to": "right" }]
+    },
+    {
+      "id": "left",
+      "type": "tool",
+      "tool_command": "set -eu; started=$(date +%s); printf 'branch=left\nmarker=LEFT_ONLY\nstarted=%s\n' \"$started\" > parallel-left.txt; sleep 4; finished=$(date +%s); printf 'finished=%s\n' \"$finished\" >> parallel-left.txt; printf 'left completed\n'",
+      "edges": [{ "to": "combine" }]
+    },
+    {
+      "id": "right",
+      "type": "tool",
+      "tool_command": "set -eu; started=$(date +%s); printf 'branch=right\nmarker=RIGHT_ONLY\nstarted=%s\n' \"$started\" > parallel-right.txt; sleep 4; finished=$(date +%s); printf 'finished=%s\n' \"$finished\" >> parallel-right.txt; printf 'right completed\n'",
+      "edges": [{ "to": "combine" }]
+    },
+    {
+      "id": "combine",
+      "type": "parallel.fan_in",
+      "prompt": "Use the supplied branch evidence and worktree paths. Inspect both worktrees: the left worktree must contain parallel-left.txt and not parallel-right.txt; the right worktree must contain parallel-right.txt and not parallel-left.txt. In this main workspace create tractor-fan-in-proof, copy those files to tractor-fan-in-proof/left.txt and tractor-fan-in-proof/right.txt, and verify from their started and finished values that the intervals overlap. Only after every check passes, write tractor-fan-in-proof/summary.txt with exactly two lines: isolation=verified and overlap=verified. Do not alter either branch worktree.",
+      "llm_provider": "openai",
+      "llm_model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "fidelity": "none",
+      "edges": [{ "to": "verify" }]
+    },
+    {
+      "id": "verify",
+      "type": "tool",
+      "tool_command": "set -eu; test ! -e parallel-left.txt; test ! -e parallel-right.txt; left=tractor-fan-in-proof/left.txt; right=tractor-fan-in-proof/right.txt; test -f \"$left\"; test -f \"$right\"; grep -qx 'branch=left' \"$left\"; grep -qx 'marker=LEFT_ONLY' \"$left\"; grep -qx 'branch=right' \"$right\"; grep -qx 'marker=RIGHT_ONLY' \"$right\"; ls=$(sed -n 's/^started=//p' \"$left\"); lf=$(sed -n 's/^finished=//p' \"$left\"); rs=$(sed -n 's/^started=//p' \"$right\"); rf=$(sed -n 's/^finished=//p' \"$right\"); test \"$ls\" -lt \"$rf\"; test \"$rs\" -lt \"$lf\"; grep -qx 'isolation=verified' tractor-fan-in-proof/summary.txt; grep -qx 'overlap=verified' tractor-fan-in-proof/summary.txt; printf 'parallel fan-in verified\n'",
+      "edges": [{ "to": "exit" }]
+    },
+    {
+      "id": "exit",
+      "type": "exit"
+    }
+  ]
+}

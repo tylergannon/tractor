@@ -420,7 +420,7 @@ func TestExecuteWithRetryStopBeforeFirstAttemptConsumesNothing(t *testing.T) {
 	}
 	runner.stop.Stop()
 	_, _, runErr, attempted, _, executeErr := runner.executeWithRetry(
-		startNode("start", "done"), HandlerFunc(startHandler), []graph.Edge{{To: "done"}}, state, store, "/workspace",
+		startNode("start", "done"), HandlerFunc(startHandler), []graph.Edge{{To: "done"}}, state, store, "/workspace", "",
 	)
 	if executeErr != nil || runErr == nil || runErr.Category != harness.ErrorInterrupted || attempted {
 		t.Fatalf("result error=%v runErr=%v attempted=%v", executeErr, runErr, attempted)

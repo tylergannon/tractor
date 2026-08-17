@@ -1,0 +1,1 @@
+/tmp/tractor-live-examples run examples/parallel/fan-out-fan-in.json --workdir ephemeral/projects/tractor/live-examples/parallel/workspace --logs ephemeral/projects/tractor/live-examples/parallel/logs

@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-08-17T13:54:12.706864Z",
+  "current_node": "exit",
+  "next_node": "",
+  "completed_nodes": [
+    "start",
+    "work",
+    "verify"
+  ],
+  "node_visits": {
+    "start": 1,
+    "verify": 1,
+    "work": 1
+  },
+  "node_attempts": {
+    "start": 1,
+    "verify": 1,
+    "work": 1
+  },
+  "seq": 3,
+  "retry_visit": false,
+  "last_stage": "verify",
+  "last_response": "exit 0: ",
+  "sessions": {
+    "\u0000none:work": {
+      "harness": "codex",
+      "session_id": "01a00fff-bd59-7cd1-97aa-79e2755b2d46",
+      "workdir": "/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/steering/workspace"
+    }
+  }
+}

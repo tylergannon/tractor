@@ -1,0 +1,3 @@
+capture_condition=exit-status.txt absent and both ParallelBranchStarted events present
+captured_event_time=2026-08-17T14:26:08.715948Z
+command=jq -c 'select(.type == "ParallelBranchStarted" or (.type == "StageStarted" and (.branch == "left" or .branch == "right")))' logs/timeline.jsonl > live-observation.jsonl

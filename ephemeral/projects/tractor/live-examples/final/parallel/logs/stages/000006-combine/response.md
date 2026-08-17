@@ -1,0 +1,3 @@
+---
+---
+Created `tractor-fan-in-proof` with `left.txt`, `right.txt`, and the exact two-line `summary.txt`. Verified branch isolation, exact copies, and overlapping intervals (`1786976768–1786976772` for both). Neither branch worktree was altered.

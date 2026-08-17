@@ -1,0 +1,18 @@
+PASS steering process exited 0 and printed COMPLETED
+PASS steering HTTP status was 200 with an empty body
+PASS steering audit recorded the instruction
+PASS Codex event stream recorded the steered user message
+PASS Codex acted on steering and the deterministic verify node passed
+PASS steering run completed with a terminal exit checkpoint
+PASS parallel process exited 0 and printed COMPLETED
+PASS branches.json records two successful branches in distinct worktrees
+PASS branch-owned intervals overlap and distinct worktrees isolate their products
+PASS fan-in copied both branch artifacts and wrote the verified summary
+PASS deterministic fan-in verify node passed
+PASS completed-run finalization removed the engine-owned worktrees
+PASS current binary emits timestamped lifecycle events
+PASS current parallel run attributes live stage events to branch and worktree
+PASS final steering run at dbbf5cb retained invocation, PID, exit status, HTTP result, logs, and workspace effect
+PASS final parallel run at dbbf5cb retained invocation, PID, exit status, live observation, logs, and workspace effects
+PASS final manifests advertise the absolute main workspace
+PASS final parallel repository state records one worktree, base HEAD, no stashes, and only expected proof output

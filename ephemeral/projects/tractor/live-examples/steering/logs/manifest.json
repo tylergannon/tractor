@@ -1,0 +1,7 @@
+{
+  "id": "dd95b1ea43547825a84eec4cce0e7d1a",
+  "name": "external-steering",
+  "goal": "Prove that a live Codex turn receives and follows external steering",
+  "started_at": "2026-08-17T13:53:31.686891Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-159907722/control.sock"
+}

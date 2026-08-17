@@ -1,0 +1,34 @@
+[
+  {
+    "branch_id": "left",
+    "outcome": {
+      "next": "combine",
+      "notes": "exit 0: left isolated"
+    },
+    "notes": "exit 0: left isolated",
+    "path": [
+      "left"
+    ],
+    "workdir": "/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/parallel/logs/worktrees-2064168965/branch-001",
+    "stage_dirs": [
+      "/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/parallel/logs/stages/000004-left"
+    ],
+    "segments": []
+  },
+  {
+    "branch_id": "right",
+    "outcome": {
+      "next": "combine",
+      "notes": "exit 0: right isolated"
+    },
+    "notes": "exit 0: right isolated",
+    "path": [
+      "right"
+    ],
+    "workdir": "/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/parallel/logs/worktrees-2064168965/branch-002",
+    "stage_dirs": [
+      "/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/parallel/logs/stages/000005-right"
+    ],
+    "segments": []
+  }
+]

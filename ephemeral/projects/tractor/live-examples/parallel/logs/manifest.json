@@ -1,0 +1,7 @@
+{
+  "id": "88546c241d871dfa9063b5b4a1a39ef2",
+  "name": "fan-out-fan-in",
+  "goal": "Prove isolated concurrent branches and consolidation in the main workspace",
+  "started_at": "2026-08-17T13:54:59.707354Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-2341845489/control.sock"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "399dfc6a51c5b61effd966b1aceb95f5",
+  "name": "fan-out-fan-in",
+  "goal": "Prove isolated concurrent branches and consolidation in the main workspace",
+  "workdir": "/Users/tyler/src/.worktrees/tractor/examples-live-validation/ephemeral/projects/tractor/live-examples/final/parallel/workspace",
+  "started_at": "2026-08-17T14:26:08.661097Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-3602859166/control.sock"
+}

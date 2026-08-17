@@ -1,0 +1,13 @@
+{"id":"dd95b1ea43547825a84eec4cce0e7d1a","name":"external-steering","type":"PipelineStarted"}
+{"node_id":"start","type":"CheckpointSaved"}
+{"index":1,"name":"start","type":"StageStarted"}
+{"duration":"213.75µs","index":1,"name":"start","next":"work","type":"StageCompleted"}
+{"node_id":"start","type":"CheckpointSaved"}
+{"index":2,"name":"work","type":"StageStarted"}
+{"duration":"41.011091917s","index":2,"name":"work","next":"verify","type":"StageCompleted"}
+{"node_id":"work","type":"CheckpointSaved"}
+{"index":3,"name":"verify","type":"StageStarted"}
+{"duration":"6.707208ms","index":3,"name":"verify","next":"exit","type":"StageCompleted"}
+{"node_id":"verify","type":"CheckpointSaved"}
+{"node_id":"exit","type":"CheckpointSaved"}
+{"duration":"41.019838792s","type":"PipelineCompleted"}

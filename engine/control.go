@@ -20,6 +20,7 @@ type runManifest struct {
 	ID            string    `json:"id"`
 	Name          string    `json:"name"`
 	Goal          string    `json:"goal"`
+	Workdir       string    `json:"workdir"`
 	StartedAt     time.Time `json:"started_at"`
 	ControlSocket string    `json:"control_socket"`
 }
@@ -98,6 +99,7 @@ func (r *Runner) loadOrCreateManifest(socketPath string) (runManifest, error) {
 	}
 	manifest.Name = r.graph.Name
 	manifest.Goal = r.graph.Goal
+	manifest.Workdir = r.config.Workdir
 	manifest.ControlSocket = socketPath
 	if err := writeJSON(path, manifest); err != nil {
 		return runManifest{}, fmt.Errorf("write run manifest: %w", err)

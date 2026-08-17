@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-08-17T13:57:54.022543Z",
+  "current_node": "exit",
+  "next_node": "",
+  "completed_nodes": [
+    "start",
+    "check"
+  ],
+  "node_visits": {
+    "check": 1,
+    "start": 1
+  },
+  "node_attempts": {
+    "check": 1,
+    "start": 1
+  },
+  "seq": 2,
+  "retry_visit": false,
+  "last_stage": "check",
+  "last_response": "exit 0: ",
+  "sessions": {}
+}
