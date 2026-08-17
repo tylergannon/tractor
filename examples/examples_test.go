@@ -16,6 +16,11 @@ func TestExamplesValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	yamlPaths, err := filepath.Glob("*/*.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths = append(paths, yamlPaths...)
 	if len(paths) == 0 {
 		t.Fatal("no examples found")
 	}
@@ -26,7 +31,12 @@ func TestExamplesValidate(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			pipeline, err := graph.Parse(raw)
+			var pipeline *graph.Graph
+			if filepath.Ext(path) == ".yaml" {
+				pipeline, err = graph.ParseYAML(raw)
+			} else {
+				pipeline, err = graph.Parse(raw)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}

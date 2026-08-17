@@ -1,0 +1,27 @@
+name: yaml-multiline-tool
+goal: Prove YAML comments and literal block commands work through Tractor.
+
+nodes:
+  - id: start
+    type: start
+    edges:
+      - to: write
+
+  # Literal blocks keep shell readable without JSON escaping.
+  - id: write
+    type: tool
+    tool_command: |
+      mkdir -p tractor-yaml-proof
+      printf '%s\n' YAML_MULTILINE_WORKS > tractor-yaml-proof/result.txt
+    edges:
+      - to: verify
+
+  - id: verify
+    type: tool
+    tool_command: |
+      test "$(cat tractor-yaml-proof/result.txt)" = YAML_MULTILINE_WORKS
+    edges:
+      - to: done
+
+  - id: done
+    type: exit

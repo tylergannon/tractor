@@ -10,5 +10,8 @@ spend tokens on a substantial coding task.
 - [`parallel/fan-out-fan-in.json`](parallel/fan-out-fan-in.json) proves that two
   tool branches execute concurrently in isolated Git worktrees and that one
   Codex fan-in turn reads both products into the main workspace.
+- [`yaml/multiline-tool.yaml`](yaml/multiline-tool.yaml) proves that YAML
+  comments and literal block commands work through the real CLI without an LLM
+  turn.
 
 Each directory documents the invocation and the observable success criteria.

@@ -1,0 +1,8 @@
+{
+  "id": "e984bc5b146d88dfcc1a3e514d753156",
+  "name": "yaml-multiline-tool",
+  "goal": "Prove YAML comments and literal block commands work through Tractor.",
+  "workdir": "/Users/tyler/src/.worktrees/tractor/yaml-input/ephemeral/projects/tractor/yaml-input-proof/workspace",
+  "started_at": "2026-08-17T15:07:02.71596Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-237517917/control.sock"
+}

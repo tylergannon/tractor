@@ -37,11 +37,16 @@ func newRootCommand() *cobra.Command {
 
 func newValidateCommand() *cobra.Command {
 	var inlineJSON string
+	var inlineYAML string
 	command := &cobra.Command{
-		Use:   "validate [pipeline.json]",
+		Use:   "validate [pipeline]",
 		Short: "Parse and validate a pipeline",
 		RunE: func(command *cobra.Command, args []string) error {
-			pipeline, source, err := loadPipeline(args, inlineJSON, command.Flags().Changed("json"))
+			pipeline, source, err := loadPipeline(
+				args,
+				inlineJSON, command.Flags().Changed("json"),
+				inlineYAML, command.Flags().Changed("yaml"),
+			)
 			if err != nil {
 				return err
 			}
@@ -53,19 +58,25 @@ func newValidateCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&inlineJSON, "json", "", "pipeline JSON")
+	command.Flags().StringVar(&inlineYAML, "yaml", "", "pipeline YAML")
 	return command
 }
 
 func newRunCommand() *cobra.Command {
 	var inlineJSON string
+	var inlineYAML string
 	var workdir string
 	var logsRoot string
 	var resume bool
 	command := &cobra.Command{
-		Use:   "run [pipeline.json]",
+		Use:   "run [pipeline]",
 		Short: "Run a pipeline",
 		RunE: func(command *cobra.Command, args []string) error {
-			pipeline, _, err := loadPipeline(args, inlineJSON, command.Flags().Changed("json"))
+			pipeline, _, err := loadPipeline(
+				args,
+				inlineJSON, command.Flags().Changed("json"),
+				inlineYAML, command.Flags().Changed("yaml"),
+			)
 			if err != nil {
 				return err
 			}
@@ -73,6 +84,7 @@ func newRunCommand() *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&inlineJSON, "json", "", "pipeline JSON")
+	command.Flags().StringVar(&inlineYAML, "yaml", "", "pipeline YAML")
 	command.Flags().StringVar(&workdir, "workdir", ".", "pipeline workspace")
 	command.Flags().StringVar(&logsRoot, "logs", "", "run log directory")
 	command.Flags().BoolVar(&resume, "resume", false, "resume from the logs checkpoint")
@@ -91,25 +103,34 @@ func newPrintSchemaCommand() *cobra.Command {
 	}
 }
 
-func loadPipeline(args []string, inlineJSON string, inlineSet bool) (*graph.Graph, string, error) {
+func loadPipeline(args []string, inlineJSON string, jsonSet bool, inlineYAML string, yamlSet bool) (*graph.Graph, string, error) {
 	if len(args) > 1 {
 		return nil, "", fmt.Errorf("accepts exactly one pipeline source")
 	}
-	if inlineSet && len(args) == 1 {
-		return nil, "", fmt.Errorf("pipeline file and --json are mutually exclusive")
+	if (jsonSet && yamlSet) || (len(args) == 1 && (jsonSet || yamlSet)) {
+		return nil, "", fmt.Errorf("pipeline file, --json, and --yaml are mutually exclusive")
 	}
-	if !inlineSet && len(args) == 0 {
-		return nil, "", fmt.Errorf("pipeline source is required: provide a file or --json")
+	if !jsonSet && !yamlSet && len(args) == 0 {
+		return nil, "", fmt.Errorf("pipeline source is required: provide a file, --json, or --yaml")
 	}
-	if inlineSet {
+	if jsonSet {
 		pipeline, err := graph.Parse([]byte(inlineJSON))
 		return pipeline, "--json", err
+	}
+	if yamlSet {
+		pipeline, err := graph.ParseYAML([]byte(inlineYAML))
+		return pipeline, "--yaml", err
 	}
 	raw, err := os.ReadFile(args[0])
 	if err != nil {
 		return nil, "", fmt.Errorf("read pipeline %q: %w", args[0], err)
 	}
-	pipeline, err := graph.Parse(raw)
+	var pipeline *graph.Graph
+	if extension := strings.ToLower(filepath.Ext(args[0])); extension == ".yaml" || extension == ".yml" {
+		pipeline, err = graph.ParseYAML(raw)
+	} else {
+		pipeline, err = graph.Parse(raw)
+	}
 	return pipeline, args[0], err
 }
 

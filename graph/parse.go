@@ -8,6 +8,7 @@ import (
 	"io"
 
 	jsonschema "github.com/tylergannon/go-gen-jsonschema"
+	"go.yaml.in/yaml/v4"
 )
 
 // Parse validates and decodes one pipeline document, then applies file-level
@@ -37,6 +38,24 @@ func Parse(data []byte) (*Graph, error) {
 	}
 	graph.applyDefaults()
 	return &graph, nil
+}
+
+// ParseYAML decodes one YAML document and passes its JSON-compatible value
+// through Parse, keeping the generated JSON decoder as the semantic authority.
+func ParseYAML(data []byte) (*Graph, error) {
+	var value any
+	if err := yaml.Load(data, &value, yaml.WithV4Defaults()); err != nil {
+		return nil, fmt.Errorf("parse pipeline YAML: %w", err)
+	}
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("parse pipeline YAML: normalize: %w", err)
+	}
+	graph, err := Parse(normalized)
+	if err != nil {
+		return nil, fmt.Errorf("parse pipeline YAML: %w", err)
+	}
+	return graph, nil
 }
 
 // NodeByID returns the node with id, if present.

@@ -1,0 +1,13 @@
+{"id":"e984bc5b146d88dfcc1a3e514d753156","name":"yaml-multiline-tool","ts":"2026-08-17T15:07:02.716192Z","type":"PipelineStarted"}
+{"node_id":"start","ts":"2026-08-17T15:07:02.716403Z","type":"CheckpointSaved"}
+{"index":1,"name":"start","ts":"2026-08-17T15:07:02.716475Z","type":"StageStarted"}
+{"duration":"171.125µs","index":1,"name":"start","next":"write","ts":"2026-08-17T15:07:02.716646Z","type":"StageCompleted"}
+{"node_id":"start","ts":"2026-08-17T15:07:02.71682Z","type":"CheckpointSaved"}
+{"index":2,"name":"write","ts":"2026-08-17T15:07:02.716871Z","type":"StageStarted"}
+{"duration":"8.111875ms","index":2,"name":"write","next":"verify","ts":"2026-08-17T15:07:02.724986Z","type":"StageCompleted"}
+{"node_id":"write","ts":"2026-08-17T15:07:02.725245Z","type":"CheckpointSaved"}
+{"index":3,"name":"verify","ts":"2026-08-17T15:07:02.725332Z","type":"StageStarted"}
+{"duration":"7.199333ms","index":3,"name":"verify","next":"done","ts":"2026-08-17T15:07:02.732534Z","type":"StageCompleted"}
+{"node_id":"verify","ts":"2026-08-17T15:07:02.732806Z","type":"CheckpointSaved"}
+{"node_id":"done","ts":"2026-08-17T15:07:02.733017Z","type":"CheckpointSaved"}
+{"duration":"16.853833ms","ts":"2026-08-17T15:07:02.733051Z","type":"PipelineCompleted"}

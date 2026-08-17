@@ -13,6 +13,15 @@ import (
 
 const linearPipeline = `{"name":"linear","nodes":[{"id":"start","type":"start","edges":[{"to":"done"}]},{"id":"done","type":"exit"}]}`
 
+const linearYAML = `name: linear
+nodes:
+  - id: start
+    type: start
+    edges: [{to: done}]
+  - id: done
+    type: exit
+`
+
 func TestRootExposesOnlyRequestedCommands(t *testing.T) {
 	stdout, _, err := executeCommand("--help")
 	if err != nil {
@@ -42,9 +51,13 @@ func TestValidateRequiresExactlyOneExplicitPipelineSource(t *testing.T) {
 		{name: "missing", args: []string{"validate"}, wantError: "pipeline source is required"},
 		{name: "two files", args: []string{"validate", file, file}, wantError: "exactly one pipeline source"},
 		{name: "file and json", args: []string{"validate", file, "--json", linearPipeline}, wantError: "mutually exclusive"},
+		{name: "file and yaml", args: []string{"validate", file, "--yaml", linearYAML}, wantError: "mutually exclusive"},
+		{name: "json and yaml", args: []string{"validate", "--json", linearPipeline, "--yaml", linearYAML}, wantError: "mutually exclusive"},
 		{name: "explicit empty json", args: []string{"validate", "--json", ""}, wantError: "parse pipeline"},
+		{name: "explicit empty yaml", args: []string{"validate", "--yaml", ""}, wantError: "parse pipeline YAML"},
 		{name: "file", args: []string{"validate", file}, wantOutput: "valid " + file + "\n"},
 		{name: "json", args: []string{"validate", "--json", linearPipeline}, wantOutput: "valid --json\n"},
+		{name: "yaml", args: []string{"validate", "--yaml", linearYAML}, wantOutput: "valid --yaml\n"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -62,6 +75,22 @@ func TestValidateRequiresExactlyOneExplicitPipelineSource(t *testing.T) {
 				t.Fatalf("stdout = %q, want %q", stdout, test.wantOutput)
 			}
 		})
+	}
+}
+
+func TestValidateDetectsYAMLFileExtensions(t *testing.T) {
+	for _, extension := range []string{".yaml", ".yml", ".YAML"} {
+		file := filepath.Join(t.TempDir(), "pipeline"+extension)
+		if err := os.WriteFile(file, []byte(linearYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		stdout, _, err := executeCommand("validate", file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if stdout != "valid "+file+"\n" {
+			t.Fatalf("stdout = %q", stdout)
+		}
 	}
 }
 

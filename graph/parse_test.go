@@ -229,6 +229,51 @@ func TestParseRequiresStrictSingleJSONDocument(t *testing.T) {
 	}
 }
 
+func TestParseYAMLAcceptsCommentsAndLiteralBlocks(t *testing.T) {
+	document := `
+name: yaml
+nodes:
+  - id: start
+    type: start
+    edges: [{to: work}]
+  # Keep commands readable.
+  - id: work
+    type: tool
+    tool_command: |
+      printf '%s\n' first
+      printf '%s\n' second
+    edges: [{to: done}]
+  - id: done
+    type: exit
+`
+	pipeline, err := ParseYAML([]byte(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := mustNode[*ToolNode](t, pipeline, "work")
+	want := "printf '%s\\n' first\nprintf '%s\\n' second\n"
+	if tool.ToolCommand != want {
+		t.Fatalf("tool command = %q, want %q", tool.ToolCommand, want)
+	}
+}
+
+func TestParseYAMLRetainsJSONWorkflowConstraints(t *testing.T) {
+	tests := map[string]string{
+		"duplicate key":      "nodes: []\nnodes: []\n",
+		"multiple documents": "nodes: []\n---\nnodes: []\n",
+		"null":               "name: null\nnodes: []\n",
+		"unknown field":      "unknown: true\nnodes: []\n",
+		"non-string key":     "1: value\nnodes: []\n",
+	}
+	for name, document := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseYAML([]byte(document)); err == nil {
+				t.Fatal("invalid YAML pipeline admitted")
+			}
+		})
+	}
+}
+
 func TestDefaultsWhitelistAndRequiredFields(t *testing.T) {
 	for _, field := range []string{"id", "type", "edges", "on_fail", "prompt", "tool_command", "thread_id", "max_parallel", "max_visits", "custom"} {
 		document := `{"defaults":{` + quoted(field) + `:1},"nodes":[]}`
