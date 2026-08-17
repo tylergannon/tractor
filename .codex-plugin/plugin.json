@@ -1,0 +1,28 @@
+{
+  "name": "tractor",
+  "version": "0.1.0",
+  "description": "Run and steer Tractor pipelines from Codex through MCP.",
+  "author": {
+    "name": "Tyler Gannon",
+    "url": "https://github.com/tylergannon"
+  },
+  "repository": "https://github.com/tylergannon/tractor",
+  "keywords": ["agents", "mcp", "pipelines", "tractor"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Tractor",
+    "shortDescription": "Run multi-agent pipelines from Codex",
+    "longDescription": "Validate, start, monitor, steer, and stop Tractor pipelines through a deferred stdio MCP tool surface.",
+    "developerName": "Tyler Gannon",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/tylergannon/tractor",
+    "defaultPrompt": [
+      "Validate this Tractor pipeline.",
+      "Start this Tractor pipeline and monitor it.",
+      "Show me Tractor's current pipeline schema."
+    ],
+    "brandColor": "#D97706"
+  }
+}

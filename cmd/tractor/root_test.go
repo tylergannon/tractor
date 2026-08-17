@@ -30,7 +30,7 @@ func TestRootExposesOnlyRequestedCommands(t *testing.T) {
 	if strings.Contains(stdout, "completion") {
 		t.Fatalf("help exposes unrequested completion command:\n%s", stdout)
 	}
-	for _, command := range []string{"print-schema", "run", "validate"} {
+	for _, command := range []string{"mcp", "print-schema", "run", "validate"} {
 		if !strings.Contains(stdout, command) {
 			t.Fatalf("help omits %q:\n%s", command, stdout)
 		}

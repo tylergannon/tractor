@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tractor": {
+      "command": "go",
+      "args": ["run", "./cmd/tractor", "mcp"],
+      "cwd": "."
+    }
+  }
+}
