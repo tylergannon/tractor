@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tylergannon/tractor/harness"
+	"github.com/tylergannon/tractor/harness/claude"
 	"github.com/tylergannon/tractor/harness/codex"
 )
 
@@ -54,10 +55,10 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var values options
-	flags.StringVar(&values.provider, "provider", "", "provider (standalone requires openai)")
-	flags.StringVar(&values.model, "model", "", "Codex model (standalone required)")
+	flags.StringVar(&values.provider, "provider", "", "provider (standalone: openai or anthropic)")
+	flags.StringVar(&values.model, "model", "", "model (standalone required)")
 	flags.StringVar(&values.reasoningEffort, "reasoning-effort", "", "reasoning effort (standalone required)")
-	flags.StringVar(&values.sessionID, "session", "", "existing Codex session ID")
+	flags.StringVar(&values.sessionID, "session", "", "existing native session ID")
 	flags.StringVar(&values.logsRoot, "logs", "", "run log directory (default: a new temporary directory)")
 	flags.DurationVar(&values.timeout, "timeout", 20*time.Minute, "turn timeout")
 	if err := flags.Parse(args); err != nil {
@@ -94,19 +95,26 @@ func run(args []string) error {
 		}
 	}
 
-	adapter := codex.New()
-	adapter.SetStderr(os.Stderr)
-	defer adapter.Close()
+	codexAdapter := codex.New()
+	codexAdapter.SetStderr(os.Stderr)
+	defer codexAdapter.Close()
+	claudeAdapter := claude.New()
+	claudeAdapter.SetStderr(os.Stderr)
+	defer claudeAdapter.Close()
+	harnessName, err := harnessForProvider(selection.provider)
+	if err != nil {
+		return err
+	}
 	bindings := map[string]harness.ThreadBinding(nil)
 	if selection.sessionID != "" {
 		bindings = map[string]harness.ThreadBinding{
-			"agent": {Harness: "codex", SessionID: selection.sessionID, Workdir: workdir},
+			"agent": {Harness: harnessName, SessionID: selection.sessionID, Workdir: workdir},
 		}
 	}
 	backend, backendErr := harness.NewHarnessBackend(
 		selection.logsRoot,
-		map[string]harness.HarnessAdapter{"codex": adapter},
-		map[string]string{"openai": "codex"},
+		map[string]harness.HarnessAdapter{"codex": codexAdapter, "claude": claudeAdapter},
+		map[string]string{"openai": "codex", "anthropic": "claude"},
 		bindings,
 	)
 	if backendErr != nil {
@@ -166,7 +174,9 @@ func resolveSelection(caller string, values options) (options, error) {
 		values.model = "gpt-5.6-sol"
 		values.reasoningEffort = "medium"
 	case callerCodex:
-		return options{}, errors.New("the Claude Code delivery direction is not implemented yet")
+		values.provider = "anthropic"
+		values.model = "fable"
+		values.reasoningEffort = "medium"
 	case callerNone:
 		if strings.TrimSpace(values.provider) == "" || strings.TrimSpace(values.model) == "" || strings.TrimSpace(values.reasoningEffort) == "" {
 			return options{}, errors.New("standalone use requires --provider, --model, and --reasoning-effort")
@@ -174,11 +184,22 @@ func resolveSelection(caller string, values options) (options, error) {
 	default:
 		return options{}, fmt.Errorf("unknown caller %q", caller)
 	}
-	if values.provider != "openai" {
-		return options{}, fmt.Errorf("codex delivery supports provider openai, not %q", values.provider)
+	if _, err := harnessForProvider(values.provider); err != nil {
+		return options{}, err
 	}
 	if values.timeout < 0 {
 		return options{}, errors.New("timeout must not be negative")
 	}
 	return values, nil
+}
+
+func harnessForProvider(provider string) (string, error) {
+	switch provider {
+	case "openai":
+		return "codex", nil
+	case "anthropic":
+		return "claude", nil
+	default:
+		return "", fmt.Errorf("unsupported provider %q", provider)
+	}
 }

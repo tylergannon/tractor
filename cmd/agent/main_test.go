@@ -20,6 +20,13 @@ func TestResolveSelection(t *testing.T) {
 	if delegated.provider != "openai" || delegated.model != "gpt-5.6-sol" || delegated.reasoningEffort != "medium" {
 		t.Fatalf("delegated selection = %#v", delegated)
 	}
+	fromCodex, err := resolveSelection(callerCodex, options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromCodex.provider != "anthropic" || fromCodex.model != "fable" || fromCodex.reasoningEffort != "medium" {
+		t.Fatalf("Codex caller selection = %#v", fromCodex)
+	}
 
 	standalone, err := resolveSelection(callerNone, options{
 		provider: "openai", model: "gpt-explicit", reasoningEffort: "high",
@@ -34,7 +41,21 @@ func TestResolveSelection(t *testing.T) {
 	if _, err := resolveSelection(callerNone, options{}); err == nil {
 		t.Fatal("standalone selection accepted missing provider/model/effort")
 	}
-	if _, err := resolveSelection(callerCodex, options{}); err == nil {
-		t.Fatal("Codex caller selected an unimplemented Claude direction")
+	if _, err := resolveSelection(callerNone, options{
+		provider: "unsupported", model: "model", reasoningEffort: "high",
+	}); err == nil {
+		t.Fatal("standalone selection accepted unsupported provider")
+	}
+}
+
+func TestHarnessForProvider(t *testing.T) {
+	for provider, want := range map[string]string{"openai": "codex", "anthropic": "claude"} {
+		got, err := harnessForProvider(provider)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("harnessForProvider(%q) = %q, want %q", provider, got, want)
+		}
 	}
 }

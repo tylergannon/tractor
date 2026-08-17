@@ -8,7 +8,10 @@ tool (
 	golang.org/x/tools/go/analysis/passes/modernize/cmd/modernize
 )
 
-require github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+require (
+	github.com/roasbeef/claude-agent-sdk-go v1.1.1-0.20260713164230-efdbecd88a98
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+)
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -27,4 +30,5 @@ require (
 	golang.org/x/telemetry v0.0.0-20260811182544-a038080d80e5 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.49.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
