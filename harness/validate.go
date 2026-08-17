@@ -37,8 +37,7 @@ func ValidateRunTurnInput(input RunTurnInput, onEvent OnEvent) *Error {
 	if onEvent == nil {
 		return terminalError("event callback must not be nil")
 	}
-	_, err := NewResultValidator(input.OutputSchema)
-	return err
+	return nil
 }
 
 // ValidateSessionInput validates inputs for a session-scoped operation.
@@ -97,8 +96,7 @@ func ValidateCodergenTurn(turn CodergenTurn) *Error {
 	default:
 		return terminalError(fmt.Sprintf("unsupported fidelity %q", turn.Fidelity))
 	}
-	_, err := NewResultValidator(turn.OutputSchema)
-	return err
+	return nil
 }
 
 func terminalError(message string) *Error {

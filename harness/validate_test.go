@@ -46,7 +46,6 @@ func TestValidateRunTurnInput(t *testing.T) {
 		"empty parts":      func(input *RunTurnInput) { input.Parts = nil },
 		"unsupported part": func(input *RunTurnInput) { input.Parts[0].Type = "image" },
 		"negative timeout": func(input *RunTurnInput) { input.Timeout = -time.Second },
-		"invalid schema":   func(input *RunTurnInput) { input.OutputSchema = json.RawMessage(`[]`) },
 	}
 	for name, mutate := range tests {
 		t.Run(name, func(t *testing.T) {

@@ -487,7 +487,7 @@ func readTurn(ctx context.Context, connection *connection, threadID, turnID stri
 		if len(message.ID) > 0 && message.Method != "" {
 			return nil, refuseServerRequest(connection, message)
 		}
-		if !messageMatches(message.Params, threadID, turnID) && message.Method != "account/rateLimits/updated" {
+		if !messageMatches(message.Params, threadID, turnID) {
 			continue
 		}
 		switch message.Method {

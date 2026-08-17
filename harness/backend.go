@@ -34,7 +34,6 @@ type HarnessBackend struct {
 	live         map[uint64]liveTurn
 	nextLiveID   uint64
 
-	logMu         sync.Mutex
 	nextSeq       uint64
 	latestSegment string
 }
@@ -268,9 +267,6 @@ func (l *turnLog) close() error {
 func (b *HarnessBackend) startTurnLog(nodeID string, binding ThreadBinding) (*turnLog, uint64, *Error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.logMu.Lock()
-	defer b.logMu.Unlock()
-
 	b.nextSeq++
 	seq := b.nextSeq
 	name := fmt.Sprintf("%06d-%s.jsonl", seq, nodeID)
@@ -312,8 +308,6 @@ func (b *HarnessBackend) finishTurnLog(liveID uint64, log *turnLog) *Error {
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.logMu.Lock()
-	defer b.logMu.Unlock()
 	delete(b.live, liveID)
 	var target string
 	switch len(b.live) {
@@ -383,15 +377,15 @@ func decodeOutcome(result Result) (Outcome, *Error) {
 }
 
 func copyAdapters(source map[string]HarnessAdapter) map[string]HarnessAdapter {
-	copy := make(map[string]HarnessAdapter, len(source))
-	maps.Copy(copy, source)
-	return copy
+	out := make(map[string]HarnessAdapter, len(source))
+	maps.Copy(out, source)
+	return out
 }
 
 func copyStrings(source map[string]string) map[string]string {
-	copy := make(map[string]string, len(source))
-	maps.Copy(copy, source)
-	return copy
+	out := make(map[string]string, len(source))
+	maps.Copy(out, source)
+	return out
 }
 
 func validBinding(binding ThreadBinding) bool {

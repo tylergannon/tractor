@@ -128,10 +128,10 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	}
 	sessionCtx := context.Background()
 	var cancelSession context.CancelFunc
-	var deadline time.Time
+	var turnDeadline time.Time
 	if input.Timeout > 0 {
-		deadline = time.Now().Add(input.Timeout)
-		sessionCtx, cancelSession = context.WithDeadline(sessionCtx, deadline)
+		turnDeadline = time.Now().Add(input.Timeout)
+		sessionCtx, cancelSession = context.WithDeadline(sessionCtx, turnDeadline.Add(controlTimeout))
 	} else {
 		sessionCtx, cancelSession = context.WithCancel(sessionCtx)
 	}
@@ -160,10 +160,10 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	if err := session.Send(sessionCtx, joinParts(input.Parts)); err != nil {
 		return nil, categorize(err, false)
 	}
-	if !deadline.IsZero() {
-		input.Timeout = time.Until(deadline)
+	if !turnDeadline.IsZero() {
+		input.Timeout = time.Until(turnDeadline)
 		if input.Timeout <= 0 {
-			return nil, interrupted("turn timed out and was interrupted")
+			input.Timeout = time.Nanosecond
 		}
 	}
 	result, runErr := waitTurn(session, state, input, active)
