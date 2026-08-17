@@ -422,6 +422,9 @@ func waitTurn(session nativeSession, state *sessionState, input harness.RunTurnI
 				return claudeagent.ResultMessage{}, mismatch
 			}
 			promoteMaterialized(state, message, input.SessionID)
+			if failure := assistantFailure(message); failure != nil {
+				return claudeagent.ResultMessage{}, failure
+			}
 			active.projector.message(message)
 			if result, ok := asResult(message); ok {
 				if timedOut || active.interrupted.Load() {
@@ -436,6 +439,28 @@ func waitTurn(session nativeSession, state *sessionState, input harness.RunTurnI
 				return result, nil
 			}
 		}
+	}
+}
+
+func assistantFailure(message claudeagent.Message) *harness.Error {
+	var code claudeagent.AssistantMessageError
+	switch assistant := message.(type) {
+	case claudeagent.AssistantMessage:
+		code = assistant.Error
+	case *claudeagent.AssistantMessage:
+		code = assistant.Error
+	}
+	if code == "" {
+		return nil
+	}
+	messageText := "Claude assistant error: " + string(code)
+	switch code {
+	case claudeagent.AssistantMessageErrorRateLimit,
+		claudeagent.AssistantMessageErrorOverloaded,
+		claudeagent.AssistantMessageErrorServerError:
+		return retryable(messageText)
+	default:
+		return terminal(messageText)
 	}
 }
 

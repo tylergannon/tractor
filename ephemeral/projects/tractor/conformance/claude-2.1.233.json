@@ -1,0 +1,53 @@
+{
+  "adapter": "claude",
+  "native_harness": "claude",
+  "native_version": "2.1.233 (Claude Code)",
+  "model": "fable",
+  "started_at": "2026-08-17T03:00:14.568094Z",
+  "finished_at": "2026-08-17T03:03:00.076583Z",
+  "passed": true,
+  "scenarios": [
+    {
+      "name": "real_workspace_turn",
+      "passed": true,
+      "duration": 11860000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3507587466/01-real_workspace_turn"
+    },
+    {
+      "name": "continuation_and_reconstruction",
+      "passed": true,
+      "duration": 9990000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3507587466/02-continuation_and_reconstruction"
+    },
+    {
+      "name": "isolation_and_serialization",
+      "passed": true,
+      "duration": 27506000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3507587466/03-isolation_and_serialization"
+    },
+    {
+      "name": "invalid_inputs_and_public_errors",
+      "passed": true,
+      "duration": 3081000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3507587466/04-invalid_inputs_and_public_errors"
+    },
+    {
+      "name": "steering",
+      "passed": true,
+      "duration": 26709000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3507587466/05-steering"
+    },
+    {
+      "name": "interruption_and_timeout",
+      "passed": true,
+      "duration": 27742000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3507587466/06-interruption_and_timeout"
+    },
+    {
+      "name": "compaction",
+      "passed": true,
+      "duration": 58621000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3507587466/07-compaction"
+    }
+  ]
+}

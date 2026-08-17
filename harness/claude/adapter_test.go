@@ -144,6 +144,28 @@ func TestRunTurnProjectsCompleteEventsAndValidatesResult(t *testing.T) {
 	}
 }
 
+func TestAssistantAPIErrorReturnsBeforeAssistantEvent(t *testing.T) {
+	const sessionID = "550e8400-e29b-41d4-a716-446655440000"
+	session := newFakeSession(3)
+	session.onSend = func(string) {
+		session.messages <- claudeagent.SystemMessage{Type: "system", Subtype: "init", SessionID: sessionID}
+		assistant := claudeagent.AssistantMessage{Type: "assistant", SessionID: sessionID, Error: claudeagent.AssistantMessageErrorModelNotFound}
+		assistant.Message.Content = []claudeagent.ContentBlock{{Type: "text", Text: "synthetic model error"}}
+		session.messages <- assistant
+	}
+	adapter := newAdapter(func(context.Context, nativeConfig) (nativeSession, error) { return session, nil })
+	var events []harness.Event
+	_, runErr := adapter.RunTurn(validInput(sessionID, t.TempDir()), func(event harness.Event) {
+		events = append(events, event)
+	})
+	if runErr == nil || runErr.Category != harness.ErrorTerminal {
+		t.Fatalf("run error = %#v, want terminal", runErr)
+	}
+	if len(events) != 1 || events[0]["type"] != harness.EventUser {
+		t.Fatalf("events = %#v, want only initial user event", events)
+	}
+}
+
 func TestInitSessionMismatchIsTerminal(t *testing.T) {
 	session := newFakeSession(2)
 	session.onSend = func(string) {
