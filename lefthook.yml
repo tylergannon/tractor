@@ -1,0 +1,33 @@
+# IMPORTANT FOR AI AGENTS:
+# These linters use DEFAULT configurations. There are no .golangci.yml or
+# other config files, and that is intentional. If a linter fails, fix the
+# code - do NOT create config files, add nolint directives, or disable
+# linters to make the check pass. The defaults are the standard.
+
+pre-commit:
+  jobs:
+    - name: formatters
+      group:
+        parallel: true
+        jobs:
+          - name: goimports
+            glob: "*.go"
+            run: go tool goimports -w {staged_files}
+            stage_fixed: true
+
+          - name: go-modernize
+            glob: "*.go"
+            run: go tool modernize -fix ./...
+            stage_fixed: true
+
+    - name: linters
+      group:
+        parallel: true
+        jobs:
+          - name: golangci-lint
+            glob: "*.go"
+            run: golangci-lint run ./...
+
+    - name: go-test
+      glob: "*.go"
+      run: go test ./...

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Orchestrate Attractor Loops"
+  short_description: "Manage iterative multi-agent delivery loops"
+  default_prompt: "Use $orchestrate-attractor-loops to shepherd this project through design, review, implementation, and live proof."
