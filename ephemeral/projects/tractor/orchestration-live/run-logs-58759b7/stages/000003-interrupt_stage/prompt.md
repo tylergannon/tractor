@@ -1,0 +1,1 @@
+Inspect the workspace. If interrupt-started.txt does not exist, use one foreground shell command to write ready to interrupt-started.txt, sleep for 45 seconds, and then write finished to interrupt-finished.txt. If interrupt-started.txt already exists, do not sleep: write resumed to interrupt-resumed.txt. Then return normally.

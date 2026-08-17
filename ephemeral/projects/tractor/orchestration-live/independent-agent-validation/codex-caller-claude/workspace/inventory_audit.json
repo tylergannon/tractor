@@ -1,0 +1,49 @@
+{
+  "dataset_id": "cbea32c3edd5",
+  "row_count": 10,
+  "net_variance_units": -1,
+  "net_impact_cents": -1327,
+  "locations": {
+    "Alajuela": {
+      "expected_units": 89,
+      "observed_units": 86,
+      "variance_units": -3,
+      "impact_cents": -2394
+    },
+    "Cartago": {
+      "expected_units": 89,
+      "observed_units": 93,
+      "variance_units": 4,
+      "impact_cents": 791
+    },
+    "Heredia": {
+      "expected_units": 78,
+      "observed_units": 82,
+      "variance_units": 4,
+      "impact_cents": 4380
+    },
+    "Limon": {
+      "expected_units": 103,
+      "observed_units": 98,
+      "variance_units": -5,
+      "impact_cents": -2155
+    },
+    "SanJose": {
+      "expected_units": 99,
+      "observed_units": 98,
+      "variance_units": -1,
+      "impact_cents": -1949
+    }
+  },
+  "discrepancies": [
+    {"location": "Heredia", "sku": "CB-H2", "variance_units": 4, "impact_cents": 4380},
+    {"location": "SanJose", "sku": "CB-S1", "variance_units": -5, "impact_cents": -3885},
+    {"location": "Limon", "sku": "CB-L1", "variance_units": -7, "impact_cents": -2807},
+    {"location": "Alajuela", "sku": "CB-A2", "variance_units": -4, "impact_cents": -2612},
+    {"location": "SanJose", "sku": "CB-S2", "variance_units": 4, "impact_cents": 1936},
+    {"location": "Cartago", "sku": "CB-C1", "variance_units": 5, "impact_cents": 1050},
+    {"location": "Limon", "sku": "CB-L2", "variance_units": 2, "impact_cents": 652},
+    {"location": "Cartago", "sku": "CB-C2", "variance_units": -1, "impact_cents": -259},
+    {"location": "Alajuela", "sku": "CB-A1", "variance_units": 1, "impact_cents": 218}
+  ]
+}

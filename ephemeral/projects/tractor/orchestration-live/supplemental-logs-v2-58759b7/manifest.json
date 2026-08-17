@@ -1,0 +1,7 @@
+{
+  "id": "9e943da5ba82c0e95c73d112ae6643fd",
+  "name": "supplemental_process_and_control_proof",
+  "goal": "Preserve primary evidence for fresh-process resume and parallel steering rejection.",
+  "started_at": "2026-08-17T06:36:35.154758Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-539117258/control.sock"
+}

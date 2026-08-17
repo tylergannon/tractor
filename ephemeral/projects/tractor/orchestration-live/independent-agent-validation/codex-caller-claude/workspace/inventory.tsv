@@ -1,0 +1,11 @@
+dataset_id	location	sku	unit_cost_cents	expected_units	observed_units
+cbea32c3edd5	Alajuela	CB-A1	218	52	53
+cbea32c3edd5	Alajuela	CB-A2	653	37	33
+cbea32c3edd5	Cartago	CB-C1	210	61	66
+cbea32c3edd5	Cartago	CB-C2	259	28	27
+cbea32c3edd5	Heredia	CB-H1	1031	43	43
+cbea32c3edd5	Heredia	CB-H2	1095	35	39
+cbea32c3edd5	Limon	CB-L1	401	57	50
+cbea32c3edd5	Limon	CB-L2	326	46	48
+cbea32c3edd5	SanJose	CB-S1	777	31	26
+cbea32c3edd5	SanJose	CB-S2	484	68	72

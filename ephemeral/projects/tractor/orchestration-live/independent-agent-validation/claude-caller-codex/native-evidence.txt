@@ -1,0 +1,7 @@
+session_id=01a00e66-1228-7411-9c0b-67d18a0cfc2f
+native_rollout=/Users/tyler/.codex/sessions/2026/08/17/rollout-2026-08-17T00-26-05-01a00e66-1228-7411-9c0b-67d18a0cfc2f.jsonl
+model=gpt-5.6-sol
+effort=medium
+originator=tractor
+codex_cli_version=0.147.0
+public_tools=commandExecution,fileChange

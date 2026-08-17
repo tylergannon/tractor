@@ -1,0 +1,31 @@
+{"id":"9e943da5ba82c0e95c73d112ae6643fd","name":"supplemental_process_and_control_proof","type":"PipelineStarted"}
+{"node_id":"start","type":"CheckpointSaved"}
+{"index":1,"name":"start","type":"StageStarted"}
+{"duration":"133.375µs","index":1,"name":"start","next":"interruptible","type":"StageCompleted"}
+{"node_id":"start","type":"CheckpointSaved"}
+{"index":2,"name":"interruptible","type":"StageStarted"}
+{"error":"tool command stopped by operator","index":2,"name":"interruptible","type":"StageFailed","will_retry":false}
+{"node_id":"interruptible","type":"CheckpointSaved"}
+{"duration":"9.591622291s","error":"tool command stopped by operator","type":"PipelineFailed"}
+{"id":"9e943da5ba82c0e95c73d112ae6643fd","name":"supplemental_process_and_control_proof","type":"PipelineStarted"}
+{"index":3,"name":"interruptible","type":"StageStarted"}
+{"duration":"5.105875ms","index":3,"name":"interruptible","next":"fanout","type":"StageCompleted"}
+{"node_id":"interruptible","type":"CheckpointSaved"}
+{"index":4,"name":"fanout","type":"StageStarted"}
+{"branch_count":2,"type":"ParallelStarted"}
+{"branch":"left","index":0,"type":"ParallelBranchStarted"}
+{"branch":"right","index":1,"type":"ParallelBranchStarted"}
+{"index":5,"name":"left","type":"StageStarted"}
+{"index":6,"name":"right","type":"StageStarted"}
+{"duration":"30.016569333s","index":6,"name":"right","next":"join","type":"StageCompleted"}
+{"branch":"right","duration":"30.017112041s","index":1,"type":"ParallelBranchCompleted"}
+{"duration":"30.060567125s","index":5,"name":"left","next":"join","type":"StageCompleted"}
+{"branch":"left","duration":"30.06090875s","index":0,"type":"ParallelBranchCompleted"}
+{"branch_count":2,"duration":"30.136685375s","type":"ParallelCompleted"}
+{"duration":"30.137553541s","index":4,"name":"fanout","next":"join","type":"StageCompleted"}
+{"node_id":"fanout","type":"CheckpointSaved"}
+{"index":7,"name":"join","type":"StageStarted"}
+{"duration":"30.6524695s","index":7,"name":"join","next":"done","type":"StageCompleted"}
+{"node_id":"join","type":"CheckpointSaved"}
+{"node_id":"done","type":"CheckpointSaved"}
+{"duration":"1m0.827600458s","type":"PipelineCompleted"}

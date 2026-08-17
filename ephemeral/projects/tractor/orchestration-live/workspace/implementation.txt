@@ -1,0 +1,88 @@
+Concrete implementation: independently reviewed JSON-lines filter
+
+Artifact
+
+Build a dependency-free Python 3.11 CLI in jsonl_filter.py with tests in
+tests/test_jsonl_filter.py.
+
+Interface:
+
+    python3 jsonl_filter.py FIELD JSON_VALUE < input.jsonl
+
+JSON_VALUE is parsed as JSON. For each non-empty input line, emit the original line
+when it is a JSON object whose top-level FIELD value equals JSON_VALUE. Preserve
+input order. Ignore blank lines. On malformed JSON, write
+"line N: invalid JSON" to stderr, stop, and exit 2. Empty input and no matches exit
+0 with no output. Treat a closed output pipe as a successful early exit. Invalid
+JSON_VALUE or the wrong argument count exits 2 with a one-line usage/error message.
+
+Acceptance criteria
+
+AC1  Matching objects are emitted exactly and in input order.
+AC2  Non-matches, non-object JSON values, and blank lines are ignored.
+AC3  String, number, boolean, null, array, and object comparison values work.
+AC4  Malformed input reports its physical line number and exits 2.
+AC5  Empty input and no-match input produce no output and exit 0.
+AC6  A broken output pipe does not print a traceback and exits 0.
+AC7  Invalid invocation and invalid JSON_VALUE exit 2 with a concise diagnostic.
+
+Required checks:
+
+    python3 -m unittest discover -s tests -v
+    python3 -m py_compile jsonl_filter.py tests/test_jsonl_filter.py
+
+Execution
+
+1. Before changing code, run non-interactive READY smoke checks for both `claude -p`
+   and `codex exec`. Capture stdout, stderr, timestamps, exit codes, and session IDs
+   under evidence/preflight/. If either command is missing, unauthenticated, or
+   fails, stop the run; do not substitute self-review or claim independent proof.
+
+2. Commit this contract as spec.md and record the repository path and base SHA in
+   run-manifest.json. The manifest also records every later commit SHA, command,
+   timestamp, exit code, agent/session ID, and evidence-file path.
+
+3. Start a fresh Claude Code session from the base commit. Give it only spec.md and
+   ask it to create jsonl_filter.py plus tests covering AC1-AC7. Capture the complete
+   invocation output in evidence/claude-implement.log. Commit the result and record
+   its implementation SHA.
+
+4. Run both required checks against that commit, capturing combined stdout/stderr
+   and exit codes in verification.log. Do not request review until both pass.
+
+5. Create a clean detached review worktree at the candidate SHA. Start a fresh Codex
+   session with no Claude transcript or conversational context. Give it spec.md, the
+   base-to-candidate diff, and the required commands. Require Codex to execute both
+   checks, run any additional temporary adversarial probes it needs, inspect test
+   adequacy, and write review-codex-round-N.md containing:
+
+   - the exact reviewed SHA;
+   - PASS or FAIL for each AC1-AC7 with evidence;
+   - findings with severity and reproduction details;
+   - an overall PASS only when every criterion passes.
+
+   Capture the Codex invocation separately in evidence/codex-review-round-N.log.
+   Transcripts prove agent participation only; the SHA-addressed checks and findings
+   are the correctness evidence.
+
+6. Record every finding in findings.md as accepted, dismissed, or disputed.
+   Accepted findings map to a Claude-authored fix commit. Dismissals require written
+   evidence. Escalate disputed material findings to the user; the implementer or
+   orchestrator may not unilaterally clear them.
+
+7. After any code or test change, rerun both required checks and invoke a new,
+   context-isolated Codex review of the new SHA. Allow at most two fix-and-review
+   rounds. If material findings remain, finish as FAILED or INCONCLUSIVE with the
+   open findings documented; never label that state independently verified.
+
+Completion proof
+
+SUMMARY.md maps AC1-AC7 to the final verification output and final Codex verdict.
+It also lists the base, implementation, fix, and final SHAs and all finding
+dispositions. Completion requires all checks to pass, no unresolved material
+findings, Codex PASS for every acceptance criterion, and exact equality between the
+delivered commit, the SHA in verification.log, and the SHA in the final review.
+
+The proof bundle is: spec.md, jsonl_filter.py, tests/test_jsonl_filter.py,
+run-manifest.json, verification.log, findings.md, all review files, SUMMARY.md, and
+the separate Claude/Codex invocation logs.

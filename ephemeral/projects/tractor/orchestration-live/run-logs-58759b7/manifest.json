@@ -1,0 +1,7 @@
+{
+  "id": "85a60523dcf9e6b429d755c780a82ab7",
+  "name": "composed_live_proof",
+  "goal": "Produce a small independently reviewed implementation artifact while demonstrating real Claude Code and Codex orchestration.",
+  "started_at": "2026-08-17T06:14:19.444606Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-1865950668/control.sock"
+}

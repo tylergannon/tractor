@@ -1,0 +1,4 @@
+{
+  "next": "implement",
+  "notes": "implementation.txt does not exist in the workspace, so implementation is required. The workspace currently contains plan.md (six-step Claude Code + Codex orchestration plan) and synthesis.md (merged review findings requiring: a pinned spec/acceptance contract, CLI preflight, commit-addressed evidence via run-manifest.json, operationally independent Codex review of a specific SHA, and a capped, auditable finding-adjudication loop). The implementation stage should produce implementation.txt reflecting both the original plan and the synthesis's required changes and revised execution sequence."
+}

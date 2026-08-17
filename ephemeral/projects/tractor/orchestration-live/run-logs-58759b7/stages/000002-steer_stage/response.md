@@ -1,0 +1,3 @@
+---
+---
+Ran the foreground command (wrote "ready" to steer-started.txt, slept 10s, wrote "finished" to steer-finished.txt) and waited for completion. A mid-turn steering instruction arrived and was obeyed: wrote exactly STEER-58759B7 to steered-live.txt. Then wrote plan.md with a concise 6-step plan for producing a small independently reviewed implementation artifact using Claude Code (implementer) and Codex (independent reviewer) orchestration, including evidence requirements.

@@ -1,0 +1,18 @@
+{
+  "dataset_id": "ac9ba7baf1fe",
+  "transaction_count": 12,
+  "accounts": [
+    {"account": "AC-17", "opening_cents": 13579, "transaction_total_cents": 2087, "calculated_closing_cents": 15666, "declared_closing_cents": 15444, "difference_cents": 222},
+    {"account": "AC-23", "opening_cents": 28741, "transaction_total_cents": -2171, "calculated_closing_cents": 26570, "declared_closing_cents": 26690, "difference_cents": -120},
+    {"account": "AC-41", "opening_cents": 9042, "transaction_total_cents": 2415, "calculated_closing_cents": 11457, "declared_closing_cents": 11457, "difference_cents": 0},
+    {"account": "AC-58", "opening_cents": 45110, "transaction_total_cents": -1717, "calculated_closing_cents": 43393, "declared_closing_cents": 43393, "difference_cents": 0},
+    {"account": "AC-86", "opening_cents": 22222, "transaction_total_cents": -445, "calculated_closing_cents": 21777, "declared_closing_cents": 21777, "difference_cents": 0}
+  ],
+  "discrepancy_accounts": [
+    {"account": "AC-17", "opening_cents": 13579, "transaction_total_cents": 2087, "calculated_closing_cents": 15666, "declared_closing_cents": 15444, "difference_cents": 222},
+    {"account": "AC-23", "opening_cents": 28741, "transaction_total_cents": -2171, "calculated_closing_cents": 26570, "declared_closing_cents": 26690, "difference_cents": -120}
+  ],
+  "total_difference_cents": 102,
+  "total_absolute_difference_cents": 342,
+  "all_declared_balances_match": false
+}

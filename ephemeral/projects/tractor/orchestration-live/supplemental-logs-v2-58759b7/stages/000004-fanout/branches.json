@@ -1,0 +1,34 @@
+[
+  {
+    "branch_id": "left",
+    "outcome": {
+      "next": "join",
+      "notes": "exit 0: "
+    },
+    "notes": "exit 0: ",
+    "path": [
+      "left"
+    ],
+    "workdir": "/Users/tyler/src/.worktrees/tractor/orchestration/ephemeral/projects/tractor/orchestration-live/supplemental-logs-v2-58759b7/worktrees-2833235562/branch-001",
+    "stage_dirs": [
+      "/Users/tyler/src/.worktrees/tractor/orchestration/ephemeral/projects/tractor/orchestration-live/supplemental-logs-v2-58759b7/stages/000005-left"
+    ],
+    "segments": []
+  },
+  {
+    "branch_id": "right",
+    "outcome": {
+      "next": "join",
+      "notes": "exit 0: "
+    },
+    "notes": "exit 0: ",
+    "path": [
+      "right"
+    ],
+    "workdir": "/Users/tyler/src/.worktrees/tractor/orchestration/ephemeral/projects/tractor/orchestration-live/supplemental-logs-v2-58759b7/worktrees-2833235562/branch-002",
+    "stage_dirs": [
+      "/Users/tyler/src/.worktrees/tractor/orchestration/ephemeral/projects/tractor/orchestration-live/supplemental-logs-v2-58759b7/stages/000006-right"
+    ],
+    "segments": []
+  }
+]

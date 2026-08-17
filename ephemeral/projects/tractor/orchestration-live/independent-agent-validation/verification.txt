@@ -1,0 +1,10 @@
+PASS binary_sha=6657299de6d423facff325cc84c6cb185541de1f076a6b9b886c722d354eca4f
+PASS claude_route session=35d8f416-0703-4e5e-b5dc-75d81a990d6c events=Bash,Read,StructuredOutput,Write
+PASS codex_route session=01a00e66-1228-7411-9c0b-67d18a0cfc2f events=commandExecution,fileChange
+PASS both semantic output comparisons against independently computed expected JSON
+PASS composed directly evidenced claims: both harnesses, loop and compaction, parallel workdirs, accepted steering, interruption, final completion
+PASS supplemental fresh OS process: initial PID 65285 exited 1; distinct resume PID 65399 used --resume and exited 0; timeline orders interrupted checkpoint before second PipelineStarted and final done checkpoint
+PASS supplemental parallel HTTP rejection: status 409 and empty body were captured during the 30-second parallel interval, after worktree creation and before completed branch evidence
+PASS supplemental cleanup: both recorded branch workdirs, their generated root, and Git registry entries are absent after final completion
+FINAL=PASS
+HEAD=58759b7386e550e6090d7471e711d80dad4e417d

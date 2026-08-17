@@ -77,11 +77,6 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 		t.Fatalf("secondary sessions after harness mismatch = %v", got)
 	}
 
-	wrongWorkdir := turn
-	wrongWorkdir.Fidelity = FidelityFull
-	wrongWorkdir.Workdir = t.TempDir()
-	assertTerminalError(t, runError(backend, wrongWorkdir))
-
 	primary.setCompactError(&Error{Category: ErrorRetryable, Message: "compact unavailable"})
 	beforeRuns := primary.runCount()
 	_, compactErr := backend.Run(turn)
@@ -110,6 +105,97 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 	}
 	if bindings[noneThreadPrefix+"isolated"].SessionID != "primary-3" {
 		t.Fatalf("none binding = %#v", bindings[noneThreadPrefix+"isolated"])
+	}
+}
+
+func TestHarnessBackendStaleWorkdirRebindsAfterHarnessCheck(t *testing.T) {
+	oldWorkdir := t.TempDir()
+	newWorkdir := t.TempDir()
+	primary := &scriptedAdapter{name: "primary"}
+	secondary := &scriptedAdapter{name: "secondary"}
+	backend := newTestBackend(t, map[string]HarnessAdapter{
+		"primary":   primary,
+		"secondary": secondary,
+	}, map[string]string{"provider-a": "primary", "provider-b": "secondary"}, map[string]ThreadBinding{
+		"shared": {Harness: "primary", SessionID: "stale-session", Workdir: oldWorkdir},
+	})
+
+	stale := testTurn("node", "shared", FidelityCompacted, "provider-a", newWorkdir)
+	if _, err := backend.Run(stale); err != nil {
+		t.Fatalf("Run() with stale workdir: %v", err)
+	}
+	stale.Fidelity = FidelityFull
+	if _, err := backend.Run(stale); err != nil {
+		t.Fatalf("Run() after stale replacement: %v", err)
+	}
+	if got, want := primary.operations(), []string{
+		"create:primary-1",
+		"run:primary-1",
+		"run:primary-1",
+	}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("primary operations = %v, want %v", got, want)
+	}
+	if got := backend.Bindings()["shared"]; got != (ThreadBinding{Harness: "primary", SessionID: "primary-1", Workdir: newWorkdir}) {
+		t.Fatalf("replacement binding = %#v", got)
+	}
+
+	wrongHarness := stale
+	wrongHarness.Provider = "provider-b"
+	wrongHarness.Workdir = t.TempDir()
+	assertTerminalError(t, runError(backend, wrongHarness))
+	if got := secondary.createdSessions(); len(got) != 0 {
+		t.Fatalf("secondary sessions after harness and workdir mismatch = %v", got)
+	}
+}
+
+func TestHarnessBackendRecoversEventSequenceAcrossReconstruction(t *testing.T) {
+	logsRoot := t.TempDir()
+	eventsRoot := filepath.Join(logsRoot, "events")
+	if err := os.MkdirAll(eventsRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"000002-old.jsonl", "000009-later.jsonl", "index.jsonl", "unrelated.txt"} {
+		if err := os.WriteFile(filepath.Join(eventsRoot, name), nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(eventsRoot, "000099-directory.jsonl"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &scriptedAdapter{name: "scripted"}
+	construct := func(bindings map[string]ThreadBinding) *HarnessBackend {
+		backend, err := NewHarnessBackend(
+			logsRoot,
+			map[string]HarnessAdapter{"scripted": adapter},
+			map[string]string{"provider": "scripted"},
+			bindings,
+		)
+		if err != nil {
+			t.Fatalf("NewHarnessBackend() error = %v", err)
+		}
+		return backend
+	}
+
+	first := construct(nil)
+	workdir := t.TempDir()
+	if _, err := first.Run(testTurn("first", "shared", FidelityFull, "provider", workdir)); err != nil {
+		t.Fatalf("first reconstructed Run(): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(eventsRoot, "000010-first.jsonl")); err != nil {
+		t.Fatalf("recovered segment 10: %v", err)
+	}
+
+	second := construct(first.Bindings())
+	if _, err := second.Run(testTurn("second", "shared", FidelityFull, "provider", workdir)); err != nil {
+		t.Fatalf("second reconstructed Run(): %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(eventsRoot, "000011-second.jsonl")); err != nil {
+		t.Fatalf("recovered segment 11: %v", err)
+	}
+	index := readJSONLines(t, filepath.Join(eventsRoot, "index.jsonl"))
+	if got := []any{index[0]["seq"], index[1]["seq"]}; !reflect.DeepEqual(got, []any{float64(10), float64(11)}) {
+		t.Fatalf("reconstructed index sequences = %v", got)
 	}
 }
 
@@ -167,7 +253,7 @@ func TestHarnessBackendConcurrentControlsAndRunLogDiscovery(t *testing.T) {
 	if first.node != "node-one" || first.err != nil {
 		t.Fatalf("first completion = %#v", first)
 	}
-	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "000002-node-two.jsonl") {
+	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "index.jsonl") {
 		t.Fatalf("current with second turn remaining = %q", got)
 	}
 	if got := backend.Steer(textParts("second steer")); got != SteerAccepted {
@@ -182,15 +268,21 @@ func TestHarnessBackendConcurrentControlsAndRunLogDiscovery(t *testing.T) {
 	if got := backend.Steer(textParts("after")); got != SteerNotActive {
 		t.Fatalf("Steer() after completion = %q", got)
 	}
-	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "000002-node-two.jsonl") {
+	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "index.jsonl") {
 		t.Fatalf("current after completion = %q", got)
+	}
+	if _, err := backend.Run(testTurnWithPrompt("node-three", "thread-three", "three", workdir)); err != nil {
+		t.Fatalf("Run() after overlap drains: %v", err)
+	}
+	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "000003-node-three.jsonl") {
+		t.Fatalf("current after next lone turn = %q", got)
 	}
 
 	steers := adapter.steeredSessions()
 	if got, want := steers, []string{"scripted-1", "scripted-2"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("steered sessions = %v, want %v", got, want)
 	}
-	assertRunLog(t, backend.logsRoot)
+	assertRunLog(t, backend.logsRoot, 3)
 }
 
 func TestHarnessBackendRejectsUndecodableOutcome(t *testing.T) {
@@ -202,11 +294,65 @@ func TestHarnessBackendRejectsUndecodableOutcome(t *testing.T) {
 	assertTerminalError(t, runError(backend, testTurn("node", "thread", FidelityFull, "provider", t.TempDir())))
 }
 
-func assertRunLog(t *testing.T, logsRoot string) {
+func TestHarnessBackendValidatesAdapterResultAgainstTurnSchema(t *testing.T) {
+	choiceSchema := json.RawMessage(`{
+		"type":"object",
+		"properties":{"next":{"type":"string","enum":["done"]},"notes":{"type":"string"}},
+		"required":["next","notes"],
+		"additionalProperties":false
+	}`)
+	linearSchema := json.RawMessage(`{
+		"type":"object",
+		"properties":{"notes":{"type":"string"}},
+		"required":["notes"],
+		"additionalProperties":false
+	}`)
+	tests := []struct {
+		name    string
+		schema  json.RawMessage
+		result  Result
+		want    Outcome
+		wantErr bool
+	}{
+		{name: "missing required next", schema: choiceSchema, result: Result{"notes": "missing"}, wantErr: true},
+		{name: "extra forbidden next", schema: linearSchema, result: Result{"next": "done", "notes": "extra"}, wantErr: true},
+		{name: "conforming choice", schema: choiceSchema, result: Result{"next": "done", "notes": "chosen"}, want: Outcome{Next: "done", Notes: "chosen"}},
+		{name: "conforming linear", schema: linearSchema, result: Result{"notes": "continued"}, want: Outcome{Notes: "continued"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			adapter := &scriptedAdapter{name: "scripted"}
+			adapter.run = func(RunTurnInput, OnEvent) (Result, *Error) {
+				return test.result, nil
+			}
+			backend := newTestBackend(
+				t,
+				map[string]HarnessAdapter{"scripted": adapter},
+				map[string]string{"provider": "scripted"},
+				nil,
+			)
+			turn := testTurn("node", "thread", FidelityFull, "provider", t.TempDir())
+			turn.OutputSchema = test.schema
+			got, err := backend.Run(turn)
+			if test.wantErr {
+				assertTerminalError(t, err)
+				return
+			}
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if got != test.want {
+				t.Fatalf("Run() = %#v, want %#v", got, test.want)
+			}
+		})
+	}
+}
+
+func assertRunLog(t *testing.T, logsRoot string, wantSegments int) {
 	t.Helper()
 	index := readJSONLines(t, filepath.Join(logsRoot, "events", "index.jsonl"))
-	if len(index) != 2 {
-		t.Fatalf("index entries = %d, want 2", len(index))
+	if len(index) != wantSegments {
+		t.Fatalf("index entries = %d, want %d", len(index), wantSegments)
 	}
 	for i, entry := range index {
 		wantSeq := float64(i + 1)

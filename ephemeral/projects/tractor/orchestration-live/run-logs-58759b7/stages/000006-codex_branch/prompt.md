@@ -1,0 +1,1 @@
+Read plan.md and independently assess it. Write codex-analysis.md with two concrete implementation recommendations. Mention the file in your notes.

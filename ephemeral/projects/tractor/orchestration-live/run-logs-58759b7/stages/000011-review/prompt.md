@@ -1,0 +1,1 @@
+Review the main workspace for Produce a small independently reviewed implementation artifact while demonstrating real Claude Code and Codex orchestration.. If implementation.txt is absent, choose implement. If it exists and accurately reflects plan.md and synthesis.md, choose done; otherwise choose implement and explain the necessary correction.

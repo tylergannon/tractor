@@ -1,0 +1,1 @@
+Read plan.md and independently critique it. Write claude-analysis.md with the two most important risks. Mention the file in your notes.

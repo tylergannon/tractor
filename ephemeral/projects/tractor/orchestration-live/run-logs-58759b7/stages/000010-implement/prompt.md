@@ -1,0 +1,1 @@
+Read plan.md and synthesis.md, then create implementation.txt containing a concrete concise implementation of the requested artifact. Address the review notes from the shared session.

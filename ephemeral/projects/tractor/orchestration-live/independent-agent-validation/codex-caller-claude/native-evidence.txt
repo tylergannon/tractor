@@ -1,0 +1,7 @@
+session_id=35d8f416-0703-4e5e-b5dc-75d81a990d6c
+native_transcript=/Users/tyler/.claude/projects/-Users-tyler-src--worktrees-tractor-orchestration-ephemeral-projects-tractor-orchestration-live-independent-agent-validation-codex-caller-claude-workspace/35d8f416-0703-4e5e-b5dc-75d81a990d6c.jsonl
+model=claude-fable-5
+effort=medium
+entrypoint=sdk-go
+claude_code_version=2.1.233
+public_tools=Read,Write,Bash,StructuredOutput

@@ -1,0 +1,4 @@
+# Independent agent validation worklog
+
+friction: the Codex-backed validation agent obeyed the generic agent-protocol checkpoint-commit rule despite the enclosing task's explicit do-not-commit constraint, creating b364acc with only validation artifacts -> prompts for real-agent validation should explicitly forbid git operations inside the delegated task; the commit was removed with a non-hard mixed reset to validated HEAD 58759b7 and its files were preserved untracked.
+proof: supplemental primary artifacts close the two original evidence gaps: distinct PIDs and ps/exit captures prove a fresh `--resume` process after interruption, while a timestamped 409 status/body capture falls between branch-worktree creation and completed branch evidence; the original and supplemental runs together support a full PASS.

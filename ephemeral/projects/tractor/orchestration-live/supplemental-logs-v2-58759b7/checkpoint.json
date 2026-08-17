@@ -1,0 +1,38 @@
+{
+  "timestamp": "2026-08-17T06:38:02.997378Z",
+  "current_node": "done",
+  "next_node": "",
+  "completed_nodes": [
+    "start",
+    "interruptible",
+    "fanout",
+    "join"
+  ],
+  "node_visits": {
+    "fanout": 1,
+    "interruptible": 1,
+    "join": 1,
+    "left": 1,
+    "right": 1,
+    "start": 1
+  },
+  "node_attempts": {
+    "fanout": 1,
+    "interruptible": 2,
+    "join": 1,
+    "left": 1,
+    "right": 1,
+    "start": 1
+  },
+  "seq": 7,
+  "retry_visit": false,
+  "last_stage": "join",
+  "last_response": "Confirmed: `left` and `right` converged. Both exited 0, are clean, and resolve to the same commit (`912e4cf`) and tree (`4cf044f`).\n\n",
+  "sessions": {
+    "join": {
+      "harness": "codex",
+      "session_id": "01a00e70-90fb-7780-9b01-c2e901bf6530",
+      "workdir": "/Users/tyler/src/.worktrees/tractor/orchestration/ephemeral/projects/tractor/orchestration-live/workspace"
+    }
+  }
+}

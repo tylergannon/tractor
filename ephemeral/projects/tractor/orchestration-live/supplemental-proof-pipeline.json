@@ -1,0 +1,51 @@
+{
+  "name": "supplemental_process_and_control_proof",
+  "goal": "Preserve primary evidence for fresh-process resume and parallel steering rejection.",
+  "defaults": {
+    "timeout": "2m",
+    "llm_model": "gpt-5.6-sol",
+    "llm_provider": "openai",
+    "reasoning_effort": "medium"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "edges": [{"to": "interruptible"}]
+    },
+    {
+      "id": "interruptible",
+      "type": "tool",
+      "tool_command": "if [ ! -f supplemental-v2-interrupted.txt ]; then touch supplemental-v2-interrupted.txt; sleep 30; else touch supplemental-v2-resumed.txt; fi",
+      "edges": [{"to": "fanout"}]
+    },
+    {
+      "id": "fanout",
+      "type": "parallel",
+      "max_parallel": 2,
+      "edges": [{"to": "left"}, {"to": "right"}]
+    },
+    {
+      "id": "left",
+      "type": "tool",
+      "tool_command": "sleep 30",
+      "edges": [{"to": "join"}]
+    },
+    {
+      "id": "right",
+      "type": "tool",
+      "tool_command": "sleep 30",
+      "edges": [{"to": "join"}]
+    },
+    {
+      "id": "join",
+      "type": "parallel.fan_in",
+      "prompt": "Confirm that both mechanical branches converged and return concise notes.",
+      "edges": [{"to": "done"}]
+    },
+    {
+      "id": "done",
+      "type": "exit"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+env -u CODEX_THREAD_ID CLAUDE_CODE_SESSION_ID=independent-claude-ac9ba7baf1fe ../agent --logs ./logs --timeout 10m ./workspace "$(prompt.txt contents)"
+
+No --provider, --model, or --reasoning-effort flag was supplied.

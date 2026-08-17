@@ -1,0 +1,103 @@
+{
+  "name": "composed_live_proof",
+  "goal": "Produce a small independently reviewed implementation artifact while demonstrating real Claude Code and Codex orchestration.",
+  "defaults": {
+    "reasoning_effort": "high",
+    "timeout": "3m"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "edges": [{"to": "steer_stage"}]
+    },
+    {
+      "id": "steer_stage",
+      "type": "codergen",
+      "prompt": "Use a workspace shell tool to run one foreground command that writes ready to steer-started.txt, sleeps for 10 seconds, then writes finished to steer-finished.txt. Wait for it. Before returning, obey any steering instruction that arrives. Then write plan.md with a concise plan for $goal.",
+      "llm_model": "fable",
+      "llm_provider": "anthropic",
+      "thread_id": "claude-main",
+      "fidelity": "full",
+      "edges": [{"to": "interrupt_stage"}]
+    },
+    {
+      "id": "interrupt_stage",
+      "type": "codergen",
+      "prompt": "Inspect the workspace. If interrupt-started.txt does not exist, use one foreground shell command to write ready to interrupt-started.txt, sleep for 45 seconds, and then write finished to interrupt-finished.txt. If interrupt-started.txt already exists, do not sleep: write resumed to interrupt-resumed.txt. Then return normally.",
+      "llm_model": "gpt-5.6-sol",
+      "llm_provider": "openai",
+      "thread_id": "codex-main",
+      "fidelity": "full",
+      "edges": [{"to": "fanout"}]
+    },
+    {
+      "id": "fanout",
+      "type": "parallel",
+      "max_parallel": 2,
+      "edges": [
+        {"to": "codex_branch"},
+        {"to": "claude_branch"}
+      ]
+    },
+    {
+      "id": "codex_branch",
+      "type": "codergen",
+      "prompt": "Read plan.md and independently assess it. Write codex-analysis.md with two concrete implementation recommendations. Mention the file in your notes.",
+      "llm_model": "gpt-5.6-sol",
+      "llm_provider": "openai",
+      "thread_id": "codex-branch",
+      "fidelity": "full",
+      "edges": [{"to": "join"}]
+    },
+    {
+      "id": "claude_branch",
+      "type": "codergen",
+      "prompt": "Read plan.md and independently critique it. Write claude-analysis.md with the two most important risks. Mention the file in your notes.",
+      "llm_model": "fable",
+      "llm_provider": "anthropic",
+      "thread_id": "claude-branch",
+      "fidelity": "full",
+      "edges": [{"to": "join"}]
+    },
+    {
+      "id": "join",
+      "type": "parallel.fan_in",
+      "prompt": "Synthesize the two branch reports into synthesis.md in the main workspace. Use their worktree paths from the supplied evidence to inspect their files if useful.",
+      "llm_model": "gpt-5.6-sol",
+      "llm_provider": "openai",
+      "thread_id": "codex-main",
+      "fidelity": "full",
+      "edges": [{"to": "review"}]
+    },
+    {
+      "id": "review",
+      "type": "codergen",
+      "prompt": "Review the main workspace for $goal. If implementation.txt is absent, choose implement. If it exists and accurately reflects plan.md and synthesis.md, choose done; otherwise choose implement and explain the necessary correction.",
+      "llm_model": "fable",
+      "llm_provider": "anthropic",
+      "thread_id": "claude-main",
+      "fidelity": "compacted",
+      "max_visits": 3,
+      "edges": [
+        {"to": "implement", "condition": "Implementation is absent or needs correction"},
+        {"to": "done", "condition": "Implementation is complete and correct"}
+      ]
+    },
+    {
+      "id": "implement",
+      "type": "codergen",
+      "prompt": "Read plan.md and synthesis.md, then create implementation.txt containing a concrete concise implementation of the requested artifact. Address the review notes from the shared session.",
+      "llm_model": "gpt-5.6-sol",
+      "llm_provider": "openai",
+      "thread_id": "codex-main",
+      "fidelity": "full",
+      "max_visits": 2,
+      "edges": [{"to": "review"}]
+    },
+    {
+      "id": "done",
+      "type": "exit"
+    }
+  ]
+}

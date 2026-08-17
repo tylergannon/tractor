@@ -10,18 +10,18 @@
 
 # Attractor Specification
 
-A DOT-based pipeline runner that uses directed graphs (defined in Graphviz DOT syntax) to orchestrate multi-stage AI workflows. Each node in the graph is a task (LLM call, human gate, tool check, parallel fan-out, etc.) and edges define the flow between them.
+A pipeline runner that uses directed graphs (defined in a typed JSON schema) to orchestrate multi-stage AI workflows. Each node in the graph is a task (LLM call, tool check, parallel fan-out, etc.) and each node's edges define the flow onward from it.
 
 ---
 
 ## Table of Contents
 
 1. [Overview and Goals](#1-overview-and-goals)
-2. [DOT DSL Schema](#2-dot-dsl-schema)
+2. [JSON Pipeline Schema](#2-json-pipeline-schema)
 3. [Pipeline Execution Engine](#3-pipeline-execution-engine)
 4. [Node Handlers](#4-node-handlers)
 5. [State](#5-state)
-6. [Human-in-the-Loop (Interviewer Pattern)](#6-human-in-the-loop-interviewer-pattern)
+6. [Human-in-the-Loop (Authoring Pattern)](#6-human-in-the-loop-authoring-pattern)
 7. [Validation and Linting](#7-validation-and-linting)
 8. [Model Selection](#8-model-selection)
 9. [Extensibility](#9-extensibility)
@@ -37,30 +37,35 @@ A DOT-based pipeline runner that uses directed graphs (defined in Graphviz DOT s
 
 AI-powered software workflows -- code generation, code review, testing, deployment planning -- often require multiple LLM calls chained together with conditional logic, human approvals, and parallel execution. Without a structured orchestration layer, developers either write fragile imperative scripts or build ad-hoc state machines that are difficult to visualize, version, or debug.
 
-Attractor solves this by letting pipeline authors define multi-stage AI workflows as directed graphs using Graphviz DOT syntax. The graph is the workflow: nodes are tasks, edges are transitions, and attributes configure behavior. The result is a declarative, visual, version-controllable pipeline definition that an execution engine can walk while recording every step and every choice.
+Attractor solves this by letting pipeline authors define multi-stage AI workflows as directed graphs in a typed JSON schema. The graph is the workflow: nodes are tasks, each node carries its own outgoing edges, and fields configure behavior. The result is a declarative, version-controllable pipeline definition that an execution engine can walk while recording every step and every choice.
 
-### 1.2 Why DOT Syntax
+### 1.2 Why a Typed JSON Schema
 
-DOT is chosen as the pipeline definition format for several reasons:
+JSON is chosen as the pipeline definition format for several reasons:
 
-- **DOT is inherently a graph description language.** Workflow pipelines are directed graphs. Using DOT means the structure (nodes and edges) maps directly to the language's primary construct, rather than being encoded in a data format like YAML or JSON that has no native concept of graphs.
-- **Existing tooling.** DOT files can be rendered to SVG/PNG with standard Graphviz tooling, giving pipeline authors immediate visual feedback. Editors, linters, and parsers already exist.
-- **Declarative and human-readable.** A `.dot` file is a complete, self-contained workflow definition that can be version-controlled, diffed, and reviewed in pull requests.
-- **Constrained extensibility.** By restricting to a well-defined DOT subset (directed graphs only, typed attributes, no HTML labels), the DSL remains predictable while being extensible through custom attributes.
+- **Typed and machine-checkable.** JSON's native types (strings, numbers, booleans, objects, arrays) map directly onto the schema's field types, and the whole definition can be validated structurally before a single semantic lint runs. A published JSON Schema gives editors completion and inline validation for free.
+- **Edges belong to their origin node.** Each node object carries its own `edges` array, so a node's routing -- where it can go and the conditions that drive the choice -- reads as one unit, both while authoring and while reviewing. There is no separate edge section to cross-reference.
+- **Universally toolable.** Every language, editor, and diff tool handles JSON. Pipelines are generated and consumed by programs (including coding agents) at least as often as by hands.
+- **Constrained extensibility.** Unknown fields are errors, which catches typos; deliberate extension has a typed home (the node `custom` object, Section 2.5) rather than a loose attribute bag.
 
-For reference on DOT syntax, see the Graphviz DOT language specification: https://graphviz.org/doc/info/lang.html
+The upstream Attractor specification defined its pipelines in Graphviz
+DOT. This specification replaces that surface: graph structure is the
+same (directed graph, one start, one exit), but the concrete syntax,
+shape-based node typing, subgraph-scoped defaults, and edge labels are
+gone. Visualization is an exporter's job -- the JSON model converts to
+DOT mechanically for rendering when a picture is wanted.
 
 ### 1.3 Design Principles
 
-**Declarative pipelines.** The `.dot` file declares what the workflow looks like and what each stage should do. The execution engine decides how and when to run each stage. Pipeline authors do not write control flow; they declare graph structure.
+**Declarative pipelines.** The pipeline file declares what the workflow looks like and what each stage should do. The execution engine decides how and when to run each stage. Pipeline authors do not write control flow; they declare graph structure.
 
-**Pluggable handlers.** Each node type (LLM call, human gate, parallel fan-out) is backed by a handler that implements a common interface. New node types are added by registering new handlers. The execution engine does not know about handler internals.
+**Pluggable handlers.** Each node type (LLM call, tool, parallel fan-out) is backed by a handler that implements a common interface. New node types are added by registering new handlers. The execution engine does not know about handler internals.
 
 **Checkpoint and resume.** After each top-level node completes, the execution engine saves a serializable checkpoint. If the process crashes, execution resumes from the last checkpoint.
 
-**Human-in-the-loop.** The pipeline can pause at designated nodes, present choices to a human operator, and route based on the human's decision. This supports approval gates, code review, and manual override -- critical for AI workflows where automated judgment may not be sufficient.
+**Human-in-the-loop.** Human participation is an authoring pattern, not an engine protocol: a node that needs a person contacts them with its own tools (or blocks in a tool command) and routes on their answer, and an external operator supervises any run through its events and steering surfaces (Section 6). This supports approval gates, code review, and manual override without a design-time interview protocol.
 
-**Every routing decision has a chooser.** When a node's outgoing edges are alternative successors, the choice of which edge to follow is made by an intelligence positioned at that node -- the LLM agent that just executed the stage, the human at a gate, or a command's exit code -- never by the engine evaluating expressions. (The one structural exception is the parallel node's fan-out, whose edges are concurrent branches rather than alternatives: all of them execute, and no choice exists, Section 4.8.) The engine offers the successors; the occupant chooses. This deliberately trades upstream's expression-based deterministic routing for observable judgment: routing policy lives in prompts, and every choice is recorded in the run directory -- the engine writes each execution's Outcome, `next` and notes together, to its stage directory (Appendix C). Edge labels are the routing conditions presented to the chooser (Section 4.5) -- prose for an intelligence to read, never strings for the engine to match.
+**Every routing decision has a chooser.** When a node's outgoing edges are alternative successors, the choice of which edge to follow is made by an intelligence positioned at that node -- the LLM agent that just executed the stage (possibly relaying a human it interviewed, Section 6), or a command's exit code -- never by the engine evaluating expressions. (The one structural exception is the parallel node's fan-out, whose edges are concurrent branches rather than alternatives: all of them execute, and no choice exists, Section 4.8.) The engine offers the successors; the occupant chooses. This deliberately trades upstream's expression-based deterministic routing for observable judgment: routing policy lives in prompts, and every choice is recorded in the run directory -- the engine writes each execution's Outcome, `next` and notes together, to its stage directory (Appendix C). Edge `condition` fields are the routing conditions presented to the chooser (Section 4.5) -- prose for an intelligence to read, never strings for the engine to match.
 
 ### 1.4 Layering and LLM Backends
 
@@ -71,272 +76,326 @@ interface (Section 4.5). What that backend does internally is entirely up to the
 implementor -- drive an existing coding-agent harness (Claude Code, Codex,
 Gemini CLI), spawn CLI agents in subprocesses, run agents in tmux panes with a
 manager attaching to them, call an LLM API directly, or anything else. The
-pipeline definition (the DOT file) does not change regardless of backend choice.
+pipeline definition (the JSON file) does not change regardless of backend choice.
 That said, existing harnesses already provide a hardened agent loop, tool
 execution, and durable session storage, so wrapping one is usually the
 objectively better choice today; see Harness-Backed Backends (Section 12) for
 guidance on implementing such wrappers.
 
-Attractor pipelines are driven by an event stream (Section 10). TUI, web, and IDE frontends consume events and submit human-in-the-loop answers. The pipeline engine is headless; the presentation layer is separate.
+Attractor pipelines are driven by an event stream (Section 10). TUI, web, and IDE frontends consume events and operate the run through its steering surface (Sections 3.9, 6). The pipeline engine is headless; the presentation layer is separate.
 
 ---
 
-## 2. DOT DSL Schema
+## 2. JSON Pipeline Schema
 
-### 2.1 Supported Subset
+### 2.1 Document Shape
 
-Attractor accepts a strict subset of the Graphviz DOT language. The restrictions exist for predictability: one graph per file, directed edges only, no HTML labels, and typed attributes with defaults.
+A pipeline is one JSON document: a single object carrying the pipeline's
+metadata, file-level defaults, and a flat array of nodes. **Edges belong
+to their origin node**: each node object carries its own `edges` array,
+so a node's routing -- where it can go, and the condition that selects
+each target -- reads as one unit. There is no separate edge list.
 
-### 2.2 BNF-Style Grammar
-
-```
-Graph           ::= 'digraph' Identifier '{' Statement* '}'
-
-Statement       ::= GraphAttrStmt
-                   | NodeDefaults
-                   | EdgeDefaults
-                   | SubgraphStmt
-                   | NodeStmt
-                   | EdgeStmt
-                   | GraphAttrDecl
-
-GraphAttrStmt   ::= 'graph' AttrBlock ';'?
-NodeDefaults    ::= 'node' AttrBlock ';'?
-EdgeDefaults    ::= 'edge' AttrBlock ';'?
-GraphAttrDecl   ::= Identifier '=' Value ';'?
-
-SubgraphStmt    ::= 'subgraph' Identifier? '{' Statement* '}'
-
-NodeStmt        ::= Identifier AttrBlock? ';'?
-EdgeStmt        ::= Identifier ( '->' Identifier )+ AttrBlock? ';'?
-
-AttrBlock       ::= '[' Attr ( ',' Attr )* ']'
-Attr            ::= Key '=' Value
-
-Key             ::= Identifier | QualifiedId
-QualifiedId     ::= Identifier ( '.' Identifier )+
-
-Value           ::= String | Integer | Float | Boolean | Duration | BareValue
-Identifier      ::= [A-Za-z_][A-Za-z0-9_]*
-String          ::= '"' ( '\\"' | '\\n' | '\\t' | '\\\\' | [^"\\] )* '"'
-Integer         ::= '-'? [0-9]+
-Float           ::= '-'? [0-9]* '.' [0-9]+
-Boolean         ::= 'true' | 'false'
-Duration        ::= Integer ( 'ms' | 's' | 'm' | 'h' | 'd' )
-BareValue       ::= [A-Za-z_][A-Za-z0-9_.:-]*
-
-Direction       ::= 'TB' | 'LR' | 'BT' | 'RL'
-```
-
-### 2.3 Key Constraints
-
-- **One digraph per file.** Multiple graphs, undirected graphs, and `strict` modifiers are rejected.
-- **Bare identifiers for node IDs.** Node IDs must match `[A-Za-z_][A-Za-z0-9_]*`. Human-readable names go in the `label` attribute.
-- **Commas required between attributes.** Inside attribute blocks, commas separate key-value pairs for unambiguous parsing.
-- **Directed edges only.** `->` is the only edge operator. `--` (undirected) is rejected.
-- **Comments supported.** Both `// line` and `/* block */` comments are stripped before parsing.
-- **Semicolons optional.** Statement-terminating semicolons are accepted but not required.
-
-### 2.4 Value Types
-
-| Type     | Syntax                          | Examples                             |
-|----------|---------------------------------|--------------------------------------|
-| String   | Double-quoted with escapes      | `"Hello world"`, `"line1\nline2"`    |
-| Integer  | Optional sign, digits           | `42`, `-1`, `0`                      |
-| Float    | Decimal number                  | `0.5`, `-3.14`                       |
-| Boolean  | Literal keywords                | `true`, `false`                      |
-| Duration | Integer + unit suffix           | `900s`, `15m`, `2h`, `250ms`, `1d`   |
-
-### 2.5 Graph-Level Attributes
-
-Graph attributes are declared in a `graph [ ... ]` block or as top-level `key = value` declarations. They configure the entire workflow.
-
-| Key                       | Type     | Default   | Description |
-|---------------------------|----------|-----------|-------------|
-| `goal`                    | String   | `""`      | Human-readable goal for the pipeline. Exposed as `$goal` in prompt templates via `ExecutionScope.goal` (Section 4.1). |
-| `label`                   | String   | `""`      | Display name for the graph (used in visualization). |
-| `default_max_retries`     | Integer  | `0`       | Default retry budget for retryable turn errors (Section 3.5) on nodes that omit `max_retries`. |
-| `default_fidelity`        | String   | `""`      | Default context fidelity mode when explicitly set. Empty string means "unset"; the runtime fallback is `compacted` (see Section 5.4). |
-
-### 2.6 Node Attributes
-
-| Key                 | Type     | Default         | Description |
-|---------------------|----------|-----------------|-------------|
-| `label`             | String   | node ID         | Display name shown in UI, prompts, and telemetry. |
-| `shape`             | String   | `"box"`         | Graphviz shape. Determines the default handler type (see mapping table below). |
-| `type`              | String   | `""`            | Explicit handler type override. Takes precedence over shape-based resolution. |
-| `prompt`            | String   | `""`            | Primary instruction for the stage. Supports `$goal` variable expansion. Falls back to `label` if empty for LLM stages. |
-| `max_retries`       | Integer  | inherited       | Additional attempts when a turn fails with a retryable error (Section 3.5). If omitted, inherits graph `default_max_retries`. `max_retries=3` means up to 4 total attempts. Never applies to routing decisions. |
-| `max_visits`        | Integer  | unset           | Visit budget: how many times this node may execute in one run. An exhausted node is no longer offered as a successor (Section 3.4). Unset means unlimited. |
-| `fidelity`          | String   | inherited       | Context fidelity mode for this node's LLM session. See Section 5.4. |
-| `thread_id`         | String   | node ID         | Thread key for LLM session reuse under session-reusing fidelity modes. Unset means the node owns its own thread (Section 5.4). |
-| `timeout`           | Duration | unset           | Maximum execution time for this node. |
-| `llm_model`         | String   | inherited       | LLM model identifier (Section 8). |
-| `llm_provider`      | String   | auto-detected   | LLM provider key. Auto-detected from model if unset. |
-| `reasoning_effort`  | String   | inherited       | LLM reasoning effort: `low`, `medium`, `high` (Section 8; recommended system default `high`). |
-| `tool_command`      | String   | `""`            | Tool nodes only: shell command to execute (Section 4.7). |
-| `on_fail`           | String   | `""`            | Tool nodes only: ID of the successor to follow on a nonzero exit code (Section 4.7). |
-| `max_parallel`      | Integer  | `4`             | Parallel nodes only: maximum branches walked concurrently (Section 4.8). |
-| `human.timeout`     | Duration | unset           | Human gates only: wait bound before the default choice is taken (Sections 4.6, 6.4). |
-| `human.default_choice` | String | `""`           | Human gates only: successor selected on timeout (Section 4.6). |
-
-The external DOT attribute name is `type`. Implementations may use an internal field name such as `node_type` to avoid reserved-word conflicts, but the externally visible behavior must remain identical.
-
-### 2.7 Edge Attributes
-
-| Key          | Type     | Default | Description |
-|--------------|----------|---------|-------------|
-| `label`      | String   | `""`    | Human-facing caption. Shown in visualization and used as the human-readable description of a successor when a chooser is presented with options (Sections 3.3, 4.5, 4.6). Routing never reads a label. |
-
-Upstream defines edge-level `condition`, `weight`, `fidelity`, `thread_id`,
-and `loop_restart`. This specification intentionally omits all of them:
-routing is chooser-based (Section 3.3), so edges carry no guard expressions
-or priorities, and session policy is node-scoped (Section 5.4).
-
-### 2.8 Shape-to-Handler-Type Mapping
-
-The `shape` attribute on a node determines which handler executes it, unless overridden by an explicit `type` attribute. This table defines the canonical mapping:
-
-| Shape             | Handler Type          | Description |
-|-------------------|-----------------------|-------------|
-| `Mdiamond`        | `start`               | Pipeline entry point. No-op handler. Every graph must have exactly one. |
-| `Msquare`         | `exit`                | Pipeline exit point. No-op handler. Every graph must have exactly one. |
-| `box`             | `codergen`            | LLM task (code generation, analysis, planning). The default for all nodes without an explicit shape. |
-| `hexagon`         | `wait.human`          | Human-in-the-loop gate. Blocks until a human selects an option. |
-| `component`       | `parallel`            | Parallel fan-out. Executes multiple branches concurrently. |
-| `tripleoctagon`   | `parallel.fan_in`     | Parallel fan-in. Consolidates branch results and chooses what follows. |
-| `parallelogram`   | `tool`                | External tool execution (shell command). Routes on exit code (Section 4.7). |
-
-Upstream additionally defines `diamond` (a conditional routing point driven
-by edge condition expressions) and `house` (an in-graph supervisor loop).
-Both are intentionally omitted: routing decisions belong to choosers
-(Section 3.3), and supervision belongs to external operators using the
-observation and steering surfaces (Section 3.9).
-
-### 2.9 Chained Edges
-
-Chained edge declarations are syntactic sugar. The statement:
-
-```
-A -> B -> C [label="next"]
-```
-
-expands to two edges:
-
-```
-A -> B [label="next"]
-B -> C [label="next"]
-```
-
-Edge attributes in a chained declaration apply to all edges in the chain.
-
-### 2.10 Subgraphs
-
-Subgraphs serve one purpose: **scoping defaults**. Attributes declared in a subgraph's `node [ ... ]` block apply to nodes within that subgraph unless the node explicitly overrides them.
-
-```
-subgraph cluster_loop {
-    label = "Loop A"
-    node [thread_id="loop-a", timeout="900s"]
-
-    Plan      [label="Plan next step"]
-    Implement [label="Implement", timeout="1800s"]
+```json
+{
+  "name": "branch",
+  "goal": "Implement and validate a feature",
+  "defaults": { "timeout": "900s" },
+  "nodes": [
+    {
+      "id": "implement",
+      "type": "codergen",
+      "prompt": "Implement the plan. Choose: validate, or replan.",
+      "max_visits": 5,
+      "edges": [
+        { "to": "run_tests", "condition": "Validate my changes" },
+        { "to": "plan", "condition": "The plan proved unworkable" }
+      ]
+    }
+  ]
 }
 ```
 
-Here `Plan` inherits `thread_id="loop-a"` and `timeout="900s"`, while `Implement` inherits `thread_id` but overrides `timeout`.
+The document is strict JSON (RFC 8259, UTF-8): no comments, no trailing
+commas. Annotation belongs in `label` and `prompt` fields; pipelines
+that want richer authoring affordances are generated.
 
-Upstream additionally derives CSS-like class names from subgraph labels for
-model-stylesheet matching; both the stylesheet and class derivation are
-intentionally omitted (Section 8).
+### 2.2 Value Types
 
-### 2.11 Node and Edge Default Blocks
+| Type     | JSON representation             | Examples                             |
+|----------|---------------------------------|--------------------------------------|
+| String   | JSON string                     | `"Hello world"`, `"line1\nline2"`    |
+| Integer  | JSON number without fraction    | `42`, `-1`, `0`                      |
+| Float    | JSON number                     | `0.5`, `-3.14`                       |
+| Boolean  | JSON boolean                    | `true`, `false`                      |
+| Duration | JSON string: integer + unit     | `"900s"`, `"15m"`, `"2h"`, `"250ms"`, `"1d"` |
 
-Default blocks set baseline attributes for all subsequent nodes or edges within their scope:
+`null` is not a value: an unset field is an absent field. A field set to
+`null` is a parse error.
 
-```
-node [shape=box, timeout="900s"]
-edge [label=""]
-```
+### 2.3 Top-Level Fields
 
-Explicit attributes on individual nodes or edges override these defaults.
+| Field      | Type       | Required | Description |
+|------------|------------|----------|-------------|
+| `name`     | String     | no       | Display name for the pipeline (UI, telemetry). |
+| `goal`     | String     | no       | Human-readable goal. Exposed as `$goal` in prompt templates via `ExecutionScope.goal` (Section 4.1). |
+| `defaults` | Object     | no       | File-level node defaults (Section 2.7). |
+| `nodes`    | Node array | yes      | The graph. Exactly one `start` and one `exit` node (Section 7.2). |
 
-### 2.12 Minimal Examples
+### 2.4 Nodes: a Discriminated Union
+
+A node's `type` field is required and selects both its handler
+(Section 4.2) and its schema: each type admits only its own fields, so a
+`tool` node cannot carry a `prompt` and a `codergen` node cannot carry a
+`tool_command` -- structural validation catches the mismatch before any
+lint runs. There is no default node type and no shape-based inference;
+every node names what it is.
+
+Fields common to every node type:
+
+| Field         | Type       | Default   | Description |
+|---------------|------------|-----------|-------------|
+| `id`          | String     | required  | Node identity. Must match `[A-Za-z_][A-Za-z0-9_]*` and be unique in the file; edges and `on_fail` reference it. |
+| `type`        | String     | required  | Discriminator: a built-in type (Section 2.5) or a registered custom type (Section 9). An unregistered value is a lint ERROR (`type_known`) and a terminal resolution Error (Section 4.2). |
+| `label`       | String     | node ID   | Display name shown in UI, prompts, and telemetry. |
+| `edges`       | Edge array | `[]`      | This node's outgoing edges (Section 2.6). Empty on the exit node. |
+| `max_visits`  | Integer    | unset     | Visit budget: how many times the walk may dispatch this node in one run (a visit spans its retry attempts and any failure-resume, Section 3.4). An exhausted node is no longer offered as a successor (Section 3.4). Unset means unlimited. |
+
+`max_visits` is common because the engine budgets visits to every
+target. `max_retries` is not: it lives only on the node types whose
+handler can return a *retryable* Error (Section 3.5) -- `codergen`,
+`parallel.fan_in`, and custom types. The other built-ins produce only
+terminal or interrupted Errors, so the field would be inert
+configuration there.
+
+### 2.5 Node Types and Their Fields
+
+| Type              | Description |
+|-------------------|-------------|
+| `start`           | Pipeline entry point. No-op handler. Exactly one per pipeline; exactly one outgoing edge (Section 3.2). No type-specific fields. |
+| `exit`            | Pipeline exit point. No-op handler. Exactly one per pipeline; no outgoing edges. No type-specific fields. |
+| `codergen`        | LLM task (code generation, analysis, planning). |
+| `parallel`        | Parallel fan-out. Executes multiple branches concurrently (Section 4.8). |
+| `parallel.fan_in` | Parallel fan-in. Consolidates branch results and chooses what follows (Section 4.9). |
+| `tool`            | External tool execution (shell command). Routes on exit code (Section 4.7). |
+
+**`codergen` and `parallel.fan_in` fields** (both run LLM turns; the
+fan-in's turn evaluates branch evidence):
+
+| Field              | Type     | Default       | Description |
+|--------------------|----------|---------------|-------------|
+| `prompt`           | String   | `""`          | Primary instruction for the stage. Supports `$goal` variable expansion. Falls back to `label` if empty. |
+| `max_retries`      | Integer  | inherited     | Additional attempts when a turn fails with a retryable error (Section 3.5). If omitted, inherits `defaults.max_retries`. `max_retries=3` means up to 4 total attempts. Never applies to routing decisions. |
+| `fidelity`         | String   | inherited     | Context fidelity mode for this node's LLM session. See Section 5.4. |
+| `thread_id`        | String   | node ID       | Thread key for LLM session reuse under session-reusing fidelity modes. Unset means the node owns its own thread (Section 5.4). |
+| `timeout`          | Duration | unset         | Maximum duration of one turn (Section 12.2, note 9). Expiry interrupts the attempt (Section 3.7). Leave it unset or generous on nodes that wait for a person (Section 4.6). |
+| `llm_model`        | String   | inherited     | LLM model identifier (Section 8). |
+| `llm_provider`     | String   | auto-detected | LLM provider key. Auto-detected from model if unset. |
+| `reasoning_effort` | String   | inherited     | LLM reasoning effort: `low`, `medium`, `high` (Section 8; recommended system default `high`). |
+
+**`tool` fields:**
+
+| Field          | Type     | Default  | Description |
+|----------------|----------|----------|-------------|
+| `tool_command` | String   | required | Shell command to execute (Section 4.7). |
+| `on_fail`      | String   | `""`     | ID of the successor to follow on a nonzero exit code (Section 4.7). |
+| `timeout`      | Duration | unset    | Maximum duration of the command (Section 4.7). |
+
+**`parallel` fields:**
+
+| Field          | Type    | Default | Description |
+|----------------|---------|---------|-------------|
+| `max_parallel` | Integer | `4`     | Maximum branches walked concurrently (Section 4.8). Parallel nodes have no `timeout` of their own. |
+
+**Custom types** (Sections 4.10, 9) are registered by string. A node
+whose `type` is not a built-in validates against the generic shape: the
+common fields of Section 2.4, plus `max_retries` (a custom handler may
+return retryable Errors), plus one extension field --
+
+| Field    | Type   | Default | Description |
+|----------|--------|---------|-------------|
+| `custom` | Object | `{}`    | Opaque to the engine: the typed home for custom-handler configuration. The engine carries it to the handler unread. |
+
+-- and its `type` must be registered at run time: an unregistered value
+never falls through to another handler (Section 4.2).
+
+The external field name is `type`. Implementations may use an internal
+field name such as `node_type` to avoid reserved-word conflicts, but the
+externally visible behavior must remain identical.
+
+Upstream's shape-driven node typing is gone with the DOT syntax, and
+three upstream node types are intentionally omitted with it: the
+conditional routing point driven by edge condition expressions
+(`diamond`), the in-graph supervisor loop (`house`), and the
+Interviewer-backed human gate (`hexagon`/`wait.human`). Routing
+decisions belong to choosers (Section 3.3), supervision belongs to
+external operators using the observation and steering surfaces
+(Section 3.9), and human interaction is an authoring pattern over
+existing node types (Sections 4.6, 6).
+
+### 2.6 Edge Fields
+
+| Field       | Type   | Required | Description |
+|-------------|--------|----------|-------------|
+| `to`        | String | yes      | Target node ID. Must name a node in this file (Section 7.2). |
+| `condition` | String | at branch points | The routing condition presented to the chooser (Sections 3.3, 4.5, 4.6): prose stating when this edge is the right choice. REQUIRED -- present and non-empty after trimming whitespace -- on every edge of a choice-schema branch point: a `codergen` or `parallel.fan_in` node with more than one edge (lint ERROR `edge_condition_missing`, Section 7.2). Optional elsewhere, as documentation. The engine never reads or matches condition text. |
+
+The `condition` is for the model, not the machine. Upstream defines
+edge-level `condition` as an evaluated guard expression, plus `weight`,
+`fidelity`, `thread_id`, and `loop_restart`; this specification omits
+all of them. Routing is chooser-based (Section 3.3), so edges carry no
+guard expressions or priorities, and session policy is node-scoped
+(Section 5.4).
+
+### 2.7 Defaults and Resolution
+
+The top-level `defaults` object holds file-level defaults for node
+fields. Resolution for every defaultable field is per field and stops at
+the first value found:
+
+1. The field on the node itself.
+2. The same field in `defaults`, if that node's type has the field.
+3. Otherwise the system default from the tables above.
+
+`defaults` admits exactly six fields -- the ones whose node tables say
+"inherited" plus the two global execution knobs:
+
+`max_retries`, `fidelity`, `timeout`, `llm_model`, `llm_provider`,
+`reasoning_effort`
+
+Anything else in `defaults` is a parse error. Identity, typing, routing,
+and each node's own work are always explicit at the node: `id`, `type`,
+`edges`, `on_fail`, `prompt`, `tool_command`, `thread_id`,
+`max_parallel`, `max_visits`, and `custom` cannot be defaulted, so a
+reader of a node sees everything that decides where it routes and what
+it does. A default for a field a node type lacks (e.g. `max_retries`
+for a `tool` node, Section 2.5) simply does not apply to nodes of that
+type.
+
+Requiredness is structural and checked before default resolution:
+a required field (`tool_command` on a `tool` node) must appear inline on
+the node, and `defaults` can never satisfy it -- which keeps the
+published JSON Schema (Section 2.8) and the parser in exact agreement.
+
+There is no scoping below the file. Upstream's subgraph-scoped default
+blocks (and the CSS-like class derivation on top of them) are gone with
+DOT, and the prior JSON draft's settings groups are not adopted: a group
+of nodes that shares a thread or a model names it on each node, where a
+reader sees it, rather than inheriting it from an enclosing block.
+
+### 2.8 Structural Constraints
+
+Violations of document structure are **parse errors** (the run never
+starts, Section 3.1); graph-shape problems found after parsing are
+**lints** (Section 7):
+
+- The file is one JSON object with the top-level fields of Section 2.3.
+- **Duplicate member names within any JSON object are a parse error**,
+  at every level, checked before schema and default processing. RFC 8259
+  leaves duplicate handling implementation-defined (last-wins,
+  first-wins, or error); a strict pipeline format cannot let two
+  conforming JSON libraries read two different workflows from one file.
+- Every entry in `nodes` is an object with a valid, unique `id` and a
+  `type`. Duplicate IDs are a parse error.
+- Every field has the type its table declares; `null` appears nowhere.
+- **Unknown fields are a parse error**, at every level -- top-level,
+  node, and edge -- including a field that exists on some other node
+  type but not this one (`prompt` on a `tool` node). This catches
+  typos (`max_visit` for `max_visits`) that a loose format would
+  silently swallow. Deliberate extension data lives in a custom-type
+  node's `custom` object, which the engine never inspects.
+
+Implementations SHOULD publish this schema as a JSON Schema document
+(the node union expressed with `type` as the discriminator) so editors
+can validate and complete pipeline files as they are written.
+
+### 2.9 Examples
 
 **Simple linear workflow:**
 
-```
-digraph Simple {
-    graph [goal="Run tests and report"]
-    rankdir=LR
-
-    start [shape=Mdiamond, label="Start"]
-    exit  [shape=Msquare, label="Exit"]
-
-    run_tests [label="Run Tests", prompt="Run the test suite and report results"]
-    report    [label="Report", prompt="Summarize the test results"]
-
-    start -> run_tests -> report -> exit
+```json
+{
+  "name": "simple",
+  "goal": "Run tests and report",
+  "nodes": [
+    { "id": "start", "type": "start", "edges": [{ "to": "run_tests" }] },
+    { "id": "run_tests", "type": "codergen",
+      "prompt": "Run the test suite and report results",
+      "edges": [{ "to": "report" }] },
+    { "id": "report", "type": "codergen",
+      "prompt": "Summarize the test results",
+      "edges": [{ "to": "exit" }] },
+    { "id": "exit", "type": "exit" }
+  ]
 }
 ```
 
 **A loop with an agent chooser, a mechanical check, and a visit budget:**
 
-```
-digraph Branch {
-    graph [goal="Implement and validate a feature"]
-    rankdir=LR
-    node [shape=box, timeout="900s"]
-
-    start     [shape=Mdiamond, label="Start"]
-    exit      [shape=Msquare, label="Exit"]
-    plan      [label="Plan", prompt="Plan the implementation"]
-    implement [
-        label="Implement",
-        prompt="Implement the plan. When you finish, choose: proceed to validation, or return to planning if the plan proved unworkable.",
-        max_visits=5
-    ]
-    run_tests [shape=parallelogram, label="Run Tests", tool_command="./run_tests.sh", on_fail="implement"]
-
-    start -> plan -> implement
-    implement -> run_tests [label="Validate my changes"]
-    implement -> plan      [label="Replan"]
-    run_tests -> exit      [label="Tests pass"]
-    run_tests -> implement [label="Tests failed"]
+```json
+{
+  "name": "branch",
+  "goal": "Implement and validate a feature",
+  "defaults": { "timeout": "900s" },
+  "nodes": [
+    { "id": "start", "type": "start", "edges": [{ "to": "plan" }] },
+    { "id": "plan", "type": "codergen",
+      "prompt": "Plan the implementation",
+      "edges": [{ "to": "implement" }] },
+    { "id": "implement", "type": "codergen",
+      "prompt": "Implement the plan. When you finish, choose: proceed to validation, or return to planning if the plan proved unworkable.",
+      "max_visits": 5,
+      "edges": [
+        { "to": "run_tests", "condition": "Validate my changes" },
+        { "to": "plan", "condition": "The plan proved unworkable; replan" }
+      ] },
+    { "id": "run_tests", "type": "tool",
+      "tool_command": "./run_tests.sh", "on_fail": "implement",
+      "edges": [
+        { "to": "exit", "condition": "Tests pass" },
+        { "to": "implement", "condition": "Tests failed" }
+      ] },
+    { "id": "exit", "type": "exit" }
+  ]
 }
 ```
 
-`implement` has two successors, so the agent chooses one when its turn ends.
-`run_tests` routes mechanically: exit code 0 follows the normal edge to
-`exit`; nonzero follows `on_fail` back to `implement`. The `max_visits`
-budget bounds the loop: once `implement` has run five times it is no longer
-offered, so a sixth visit cannot be chosen and the run fails instead of
-looping forever (Section 3.4).
+`implement` has two edges, so the agent chooses one when its turn ends --
+each edge's `condition` is the text it chooses by. `run_tests` routes
+mechanically: exit code 0 follows the normal edge to `exit`; nonzero
+follows `on_fail` back to `implement` (its `condition` strings are
+documentation only -- a tool node consults the exit code, not a model).
+The `max_visits` budget bounds the loop: once `implement` has run five
+times it is no longer offered, so a sixth visit cannot be chosen and the
+run fails instead of looping forever (Section 3.4).
 
-**Human gate:**
+**Human approval (authoring pattern, Sections 4.6, 6):**
 
-```
-digraph Review {
-    rankdir=LR
-
-    start [shape=Mdiamond, label="Start"]
-    exit  [shape=Msquare, label="Exit"]
-
-    review_gate [
-        shape=hexagon,
-        label="Review Changes",
-        type="wait.human"
-    ]
-
-    start -> review_gate
-    review_gate -> ship_it [label="[A] Approve"]
-    review_gate -> fixes   [label="[F] Fix"]
-    ship_it -> exit
-    fixes -> review_gate
+```json
+{
+  "name": "review",
+  "nodes": [
+    { "id": "start", "type": "start", "edges": [{ "to": "review_gate" }] },
+    { "id": "review_gate", "type": "codergen",
+      "prompt": "Ask Tyler on Slack whether these changes ship. Poll for his reply with exponential backoff. Route on his answer.",
+      "edges": [
+        { "to": "ship_it", "condition": "Approved" },
+        { "to": "fixes", "condition": "Fixes requested" }
+      ] },
+    { "id": "ship_it", "type": "codergen", "prompt": "Ship the changes",
+      "edges": [{ "to": "exit" }] },
+    { "id": "fixes", "type": "codergen", "prompt": "Apply the requested fixes",
+      "edges": [{ "to": "review_gate" }] },
+    { "id": "exit", "type": "exit" }
+  ]
 }
 ```
 
----
+`review_gate` is an ordinary codergen node: the agent conducts the
+interview with its own tools and the human's decision arrives through
+the same choice schema as every other routing decision. A deterministic
+variant is a `tool` node whose command blocks until a response arrives
+and exits 0 or nonzero (Section 4.6).
 
 ## 3. Pipeline Execution Engine
 
@@ -348,11 +407,11 @@ The execution lifecycle proceeds through five phases:
 PARSE -> VALIDATE -> INITIALIZE -> EXECUTE -> FINALIZE
 ```
 
-1. **Parse:** Read the `.dot` source and produce an in-memory Graph model (nodes, edges, attributes), applying default-block and subgraph scoping (Sections 2.10, 2.11).
+1. **Parse:** Read the pipeline JSON and produce an in-memory Graph model (nodes with their edges and fields), applying file-level defaults (Section 2.7) and rejecting structural violations (Section 2.8).
 2. **Validate:** Run lint rules (Section 7). Reject invalid graphs. Warn on suspicious patterns.
 3. **Initialize:** Create the run directory, the initial engine state (Section 5.1), and the initial checkpoint.
 4. **Execute:** Traverse the graph from the start node, executing handlers and following chosen successors (Section 3.3).
-5. **Finalize:** On completion, write the final checkpoint (`current_node` is the terminal node, `next_node` is empty, Section 5.3); on failure, write the failure checkpoint naming the failed node as `next_node` (Section 3.7). Emit completion events and clean up resources (including any remaining branch worktrees, Section 4.8). When an operator stops the run, the engine sets the run's `StopSignal` (Section 4.1) and calls the backend's `interrupt_all()` (Section 12.1); every in-flight handler returns an interrupted Error promptly, the failure checkpoint is written, and only then are sessions closed and files released.
+5. **Finalize:** On completion, write the final checkpoint (`current_node` is the terminal node, `next_node` is empty, Section 5.3) and clean up resources, including any remaining branch worktrees (Section 4.8). On failure, write the failure checkpoint naming the failed node as `next_node` (Section 3.7) and leave branch worktrees **in place** -- a resumed fan-in needs the evidence they hold (Section 4.9). When an operator stops the run, the engine sets the run's `StopSignal` (Section 4.1) and calls the backend's `interrupt_all()` (Section 12.1); every in-flight handler returns an interrupted Error promptly, and the failure checkpoint is written through the ordinary failure path (Section 3.2) -- the engine also observes the signal itself between executions and between retry attempts (Sections 3.2, 3.5), so a stop that lands while no handler is in flight still ends the run at the next dispatch point (writing no new checkpoint there -- the last one already stands correct, Section 3.7). Only after any failure checkpoint lands are sessions closed and files released.
 
 ### 3.2 Core Execution Loop
 
@@ -369,15 +428,24 @@ FUNCTION run(graph, config):
                                    -- process's stop surface
 
     current_node = find_start_node(graph)
-        -- Resolves by: (1) shape=Mdiamond, (2) id="start" or "Start"
+        -- The unique node with type="start" (lint-guaranteed, Section 7.2)
         -- Raises error if not found
 
     WHILE true:
         node = graph.nodes[current_node.id]
 
-        -- Step 1: Check for terminal node
+        -- Step 1: Check for terminal node, then for an operator stop
         IF is_terminal(node):
             RETURN RunResult(status=COMPLETED)
+        IF stop.is_set():
+            -- a stop that landed while no handler was in flight: write
+            -- NOTHING. The last checkpoint already names this node as
+            -- next_node with the correct retry_visit -- a fresh
+            -- checkpoint here would clobber a pending retry_visit from
+            -- a failure checkpoint the run just resumed from,
+            -- double-billing that node's visit (Section 3.7)
+            RETURN RunResult(status=FAILED,
+                             failure_reason="stopped by operator")
 
         -- Step 2: Compute the offered successors (Section 3.3)
         offered = offered_successors(node, graph, state.node_visits)
@@ -388,15 +456,29 @@ FUNCTION run(graph, config):
                 failure_reason="every successor of " + node.id +
                                " has exhausted its visit budget")
 
-        -- Step 3: Execute the node; retryable turn errors are retried
-        --         (Section 3.5); any surviving error fails the run
+        -- Step 3: Resolve the handler and execute the node; retryable
+        --         turn errors are retried (Section 3.5); any surviving
+        --         error fails the run
+        handler, rerr = registry.resolve(node)   -- Section 4.2
+        IF rerr is not NONE:
+            -- pre-execution failure (unknown explicit type): nothing
+            -- ran, so no new checkpoint (Sections 3.7, 4.2)
+            RETURN RunResult(status=FAILED, failure_reason=rerr.message)
         state.node_visits[node.id] += 1
-        outcome, error = execute_with_retry(node, offered, graph,
-                                            state, stop)
+            -- skipped exactly once when resuming from a failure
+            -- checkpoint with retry_visit set: that execution continues
+            -- the already-counted visit (Section 5.3)
+        outcome, error = execute_with_retry(node, handler, offered, graph,
+                                            state, stop,
+                                            workdir=run_workspace)
+            -- run_workspace = config's workspace path; branch walks pass
+            -- their worktree instead (Section 4.8)
         IF error is not NONE:
-            save_failure_checkpoint(state, node.id)    -- Section 3.7:
-                -- next_node = the failed node, completed_nodes untouched,
-                -- counters and sessions recording what actually happened
+            save_failure_checkpoint(state, node.id, retry_visit=true)
+                -- Section 3.7: next_node = the failed node,
+                -- completed_nodes untouched, counters and sessions
+                -- recording what actually happened; retry_visit because
+                -- this node consumed its visit at Step 3 (Section 5.3)
             RETURN RunResult(status=FAILED, failure_reason=error.message)
 
         -- Step 4: Resolve the chosen successor from the Outcome
@@ -408,13 +490,14 @@ FUNCTION run(graph, config):
             IF next_id NOT IN allowed_targets(node, offered, graph):
                 -- allowed_targets = offered targets, plus the designated
                 -- fan-in when node is a parallel node
-                save_failure_checkpoint(state, node.id)
+                save_failure_checkpoint(state, node.id,
+                                        retry_visit=true)
                 RETURN RunResult(status=FAILED,
                     failure_reason="chooser named an unoffered successor")
         ELSE IF size(offered) == 1:
-            next_id = offered[0].to_node   -- no decision existed
+            next_id = offered[0].to   -- no decision existed
         ELSE:
-            save_failure_checkpoint(state, node.id)
+            save_failure_checkpoint(state, node.id, retry_visit=true)
             RETURN RunResult(status=FAILED,
                 failure_reason="handler supplied no choice among " +
                                size(offered) + " offered successors")
@@ -443,13 +526,17 @@ falls through to the lone offered successor. The `parallel` handler is the
 one exception to the `next`-must-be-offered rule: its `next` names the fan-in
 node where the branches converge (Section 4.8), and the engine accepts it.
 
-The engine checkpoints after every execution, success or failure. A success
+The engine checkpoints after every top-level execution, success or failure
+-- one node visit, comprising all of its retry attempts (Section 3.5); no
+checkpoint is written between attempts. A success
 checkpoint is saved only after the routing question is answered: it carries
 the resolved successor (`next_node`, Section 5.3), so resume continues the
 walk instead of re-deriving -- or re-asking -- a choice. A failure
 checkpoint names the failed node itself as `next_node` (Section 3.7), so
 resume retries it. A crash between checkpoints re-runs only the genuinely
-in-flight node's work (Section 5.3).
+in-flight node's work -- including any retry attempts already spent, whose
+stage directories and orphaned harness sessions survive as evidence but
+carry no engine state forward (Section 5.3).
 
 ### 3.3 Successor Choice
 
@@ -465,8 +552,8 @@ exhausted its visit budget (Section 3.4).
 ```
 FUNCTION offered_successors(node, graph, node_visits) -> List<Edge>:
     result = []
-    FOR EACH edge IN graph.outgoing_edges(node.id):
-        target = graph.nodes[edge.to_node]
+    FOR EACH edge IN node.edges:
+        target = graph.nodes[edge.to]
         IF target.max_visits is set AND node_visits[target.id] >= target.max_visits:
             CONTINUE      -- exhausted; not offered
         result.append(edge)
@@ -478,15 +565,13 @@ FUNCTION offered_successors(node, graph, node_visits) -> List<Edge>:
 - **One offered successor: no decision exists.** The engine follows it. No
   `next` is required -- the codergen choice schema contains no `next`
   property (Section 4.5) -- and a chooser that names the lone target anyway
-  (a human gate's confirmation, a tool's exit-code route) is validated
-  identically.
+  (a tool's exit-code route) is validated identically.
 - **Multiple offered successors: the chooser decides.** The Outcome's `next`
   names one offered target ID, produced by whoever occupies the node:
 
 | Node type          | Chooser        | Mechanism |
 |--------------------|----------------|-----------|
 | `codergen`         | the agent      | `next` in the choice schema, a string enum of offered target IDs whose property description maps each ID to its route meaning (Section 4.5) |
-| `wait.human`       | the human      | option selection over the offered edges (Section 4.6) |
 | `tool`             | the exit code  | zero follows the normal successor, nonzero follows `on_fail` (Section 4.7) |
 | `parallel`         | nobody         | all offered edges execute as branches; `next` names the fan-in (Section 4.8) |
 | `start`            | nobody         | must have exactly one outgoing edge (lint `start_single_outgoing`) |
@@ -497,11 +582,11 @@ FUNCTION offered_successors(node, graph, node_visits) -> List<Edge>:
   node (Section 3.2); a violation fails the run. For codergen nodes the
   schema'd backend makes a violation unreachable -- the adapter only returns
   objects conforming to the choice schema (Section 12.2).
-- **Labels inform the chooser, never the engine.** An edge's label is the
+- **Conditions inform the chooser, never the engine.** An edge's `condition` is the
   routing condition presented to whichever intelligence chooses at that
   node (Section 4.5), and is required on every outgoing edge of a codergen
-  branch point (lint ERROR `branch_label_missing`, Section 7.2). Engine
-  routing logic never reads or compares label text.
+  branch point (lint ERROR `edge_condition_missing`, Section 7.2). Engine
+  routing logic never reads or compares condition text.
 
 Routing *policy* -- "loop until the tests pass", "escalate to a human after
 two attempts" -- is expressed in node prompts and graph shape, not in an
@@ -513,18 +598,22 @@ steerable like everything else.
 ### 3.4 Visit Budgets
 
 `max_visits` is the loop-bounding primitive. It is a budget on the *target*
-node: how many times that node may execute in one run.
+node: how many times the walk may dispatch that node in one run.
 
-- The engine counts every execution of every node in `node_visits`
-  (checkpointed, Section 5.3).
+- The engine counts every visit of every node in `node_visits`
+  (checkpointed, Section 5.3). A visit is one top-level dispatch by the
+  walk; the handler executions inside it -- same-process retry attempts
+  (Section 3.5) and post-failure resumed executions (`retry_visit`,
+  Section 5.3) -- are counted in `node_attempts`, not `node_visits`.
+  `max_visits` therefore bounds graph traversal, not operator recovery
+  (Section 3.7).
 - An edge whose target has exhausted its budget is excluded from every offered
   set (Section 3.3). The chooser literally cannot choose it: for codergen
-  nodes it is absent from the schema enum; for human gates it is not
-  presented.
+  nodes it is absent from the schema enum.
 - If exclusion leaves a node with an empty offered set, the run fails with an
   explicit reason. Authors who want a softer landing draw an edge to an
-  escalation node (a human gate, a summarizing agent) so a path remains when
-  the loop budget runs out.
+  escalation node (an agent that pages a human, a summarizing agent) so a
+  path remains when the loop budget runs out.
 
 The budget is engine bookkeeping only: handlers are not told the visit
 number. An author who wants the agent to pace itself against the budget says
@@ -540,19 +629,22 @@ graph language beyond the budget itself. An agent that wants another attempt
 at its task routes back to a node; that is a loop, governed by `max_visits`,
 not a retry.
 
-The budget resolves as: node `max_retries`, else graph `default_max_retries`,
-else 0. `max_retries` counts additional attempts: `max_retries=3` means up to
+The budget resolves as: node `max_retries`, else `defaults.max_retries`
+(Section 2.7), else 0. `max_retries` counts additional attempts: `max_retries=3` means up to
 4 total attempts (`max_attempts = max_retries + 1`).
 
 ```
-FUNCTION execute_with_retry(node, offered, graph, state, stop)
-    -> (Outcome, Error):
+FUNCTION execute_with_retry(node, handler, offered, graph, state, stop,
+                            workdir) -> (Outcome, Error):
     FOR attempt FROM 1 TO max_attempts(node, graph):
+        IF stop.is_set():
+            RETURN (NONE, Error("interrupted", "stopped by operator"))
         state.node_attempts[node.id] += 1
-        scope = make_scope(node, state, stop)
+        scope = make_scope(node, state, stop, workdir)
             -- allocates the next run-wide sequence number, creates
             -- stages/{seq}-{node_id}/, and assembles the ExecutionScope
-            -- (Section 4.1): workdir, stage_dir, goal, stop
+            -- (Section 4.1) from the supplied workdir, the new stage_dir,
+            -- the graph goal, and the stop signal
         outcome, error = handler.execute(node, offered, scope, graph)
             -- unexpected handler exceptions are caught by the engine and
             -- wrapped as terminal Errors
@@ -561,9 +653,12 @@ FUNCTION execute_with_retry(node, offered, graph, state, stop)
                 -- EVERY handler (Appendix C), then stages/latest/{node_id}
                 -- is repointed at this execution's directory
             RETURN (outcome, NONE)
+        write_error(scope.stage_dir, error)   -- error.json: the failed
+            -- attempt's category and message, so an observer browsing
+            -- stages can tell a failed attempt from one killed mid-write
         IF error.category == "retryable" AND attempt < max_attempts:
-            sleep(backoff_delay(attempt))     -- Section 3.6
-            CONTINUE
+            race(sleep(backoff_delay(attempt)), stop.wait())  -- Section 3.6;
+            CONTINUE       -- a stop during backoff is caught at loop top
         RETURN (NONE, error)
 ```
 
@@ -577,7 +672,7 @@ node in the checkpoint.
 
 Delay before retry attempt `n` (1-indexed): `200ms * 2^(n-1)`, capped at
 60 seconds, multiplied by a jitter factor drawn uniformly from [0.5, 1.5].
-These are implementation configuration, not graph attributes.
+These are implementation configuration, not pipeline fields.
 
 ### 3.7 Run Failure
 
@@ -591,7 +686,9 @@ when:
   (Section 3.4);
 - a chooser names an unoffered successor, or supplies none when a decision
   was required (Section 3.3);
-- a tool node exits nonzero with no `on_fail` declared (Section 4.7).
+- a tool node exits nonzero with no `on_fail` declared (Section 4.7);
+- a node's `type` resolves to no registered handler
+  (Section 4.2) -- an unlinted graph's defect, caught before dispatch.
 
 A failed run writes a **failure checkpoint**: the same Checkpoint shape
 (Section 5.3) with `next_node` naming the failed node itself,
@@ -599,10 +696,22 @@ A failed run writes a **failure checkpoint**: the same Checkpoint shape
 session bindings recording what actually happened -- including a session the
 failed node opened before dying, which is exactly what makes that session
 continuable after resume. The rule is uniform: the engine checkpoints after
-every execution, success or failure; the only failure that writes nothing is
-the pre-execution empty-offered-set case (Section 3.2), where nothing ran
-and the last checkpoint already names the stuck node. Resume from a failure
-checkpoint retries the failed node (Section 5.3).
+every top-level execution, success or failure (retry attempts inside a
+visit checkpoint nothing, Section 3.2). The failures that write nothing
+are the pre-execution cases -- an empty offered set, an unresolvable
+handler (Section 4.2), and an operator stop
+caught before dispatch (Section 3.2) -- where nothing ran and the last
+checkpoint already names the stuck node with the correct `retry_visit`.
+Resume from a failure checkpoint retries the failed node -- as a
+continuation of its already-counted visit, since every written failure
+checkpoint follows a consumed execution and therefore sets `retry_visit`
+(Section 5.3) -- so failure-resume cannot blow a `max_visits` budget the
+run had respected. The converse is deliberate: repeated fail-and-resume
+cycles re-execute the node within that one consumed visit, so a node can
+*execute* more times than `max_visits` across them. `max_visits` bounds
+graph traversal (Section 3.4); resumption is an explicit operator recovery
+action, bounded by the operator who keeps choosing it -- exactly as
+re-running a failed run is unbounded.
 
 There is no failure *routing*: no fail edges, no retry targets, no jump
 tables. A path that should survive a bad outcome is drawn in the graph, where
@@ -678,13 +787,21 @@ Requirements:
   task's live session. If the task ends before the adapter can apply it, the
   instruction is a no-op. It is never queued for later work, rewritten into a
   future prompt, or converted into an edge, outcome, or context update. If the
-  current step is a parallel (fan_out) step, the target is ambiguous and the
-  request fails before adapter handoff.
+  current top-level execution is a parallel (fan_out) step, the target is
+  ambiguous and the **engine (control server) rejects the request itself,
+  before backend handoff** -- it must not delegate this to the backend's
+  live-count check (Section 12.1), which sees one live turn whenever
+  branch turns merely happen not to overlap and would mis-deliver the
+  instruction to an arbitrary branch. An accepted request therefore
+  always has exactly one active top-level execution, which is also the
+  stage directory its audit record lands in.
 - Success means only that the instruction was handed to the adapter.
 - A failed steering request does not by itself fail the workflow.
-- Each steering request and whether it was handed to the adapter are recorded
-  by the engine in the active execution's stage directory
-  (`steering.jsonl`, Section 5.6) for audit.
+- Each accepted steering request is recorded by the engine in the active
+  execution's stage directory (`steering.jsonl`, Section 5.6) for audit. A
+  rejected request has no active execution to record into; its response
+  code is the record, and implementations MAY additionally note it in
+  `timeline.jsonl` (Section 10).
 
 Observation by an external operator happens through surfaces this
 specification already defines: the run directory (Section 5.6) -- notably
@@ -723,7 +840,7 @@ these surfaces.
 
 ### 4.1 Handler Interface
 
-Every node handler implements a common interface. The execution engine dispatches to the appropriate handler based on the node's `type` attribute (or shape-based resolution if `type` is empty).
+Every node handler implements a common interface. The execution engine dispatches to the handler registered for the node's `type` (Section 4.2).
 
 ```
 INTERFACE Handler:
@@ -731,7 +848,7 @@ INTERFACE Handler:
         -> OneOf<Outcome, Error>
 
     -- Parameters:
-    --   node    : The parsed Node with all its attributes
+    --   node    : The parsed Node with all its fields
     --   offered : The offered successor edges (Section 3.3); the handler's
     --             chooser must pick among them when there is more than one
     --   scope   : The ExecutionScope for this single execution (below)
@@ -754,7 +871,7 @@ ExecutionScope:
                             -- (Section 5.6); handlers write their
                             -- specialized files here, the engine writes
                             -- outcome.json here (Appendix C)
-    goal      : String      -- the graph-level goal attribute; the source
+    goal      : String      -- the top-level goal field; the source
                             -- for $goal expansion (Section 4.5)
     stop      : StopSignal  -- the run's operator-stop signal (below)
 
@@ -762,7 +879,8 @@ StopSignal:
     FUNCTION is_set() -> Bool    -- has the engine requested a stop?
     FUNCTION wait()              -- blocks until set; for handlers that
                                  -- block on something other than a
-                                 -- backend turn (gates, subprocesses)
+                                 -- backend turn (subprocesses, custom
+                                 -- handlers)
 ```
 
 `StopSignal` is one-shot and engine-set: it is set once, when an operator
@@ -771,37 +889,38 @@ MUST return `Error(interrupted)` promptly once the signal is set --
 codergen handlers get this behavior for free because the engine also calls
 the backend's `interrupt_all()`, which ends the live turn (Section 12.1);
 handlers that block elsewhere observe the signal themselves via `is_set()`
-polling or a race against `wait()`.
+polling or a race against `wait()`. The engine closes the remaining gaps
+itself: it checks the signal before each dispatch and each retry attempt
+and races backoff sleeps against it (Sections 3.2, 3.5), so a stop that
+lands between turns -- including after `interrupt_all()` has already run
+-- still ends the run without another node executing. The reference stop
+surface is a process signal (SIGINT/SIGTERM) delivered to the engine
+process; a remote stop endpoint is deliberately out of scope for this
+version (the control socket carries steering and nothing else,
+Section 3.9).
 
 ### 4.2 Handler Registry
 
-The handler registry maps type strings to handler instances. Resolution follows this order:
-
-1. **Explicit `type` attribute** on the node (e.g., `type="wait.human"`)
-2. **Shape-based resolution** using the shape-to-handler-type mapping table (Section 2.8)
-3. **Default handler** (the codergen/LLM handler)
+The handler registry maps type strings to handler instances. Resolution
+is a single lookup: every node names its `type` (Section 2.4), and an
+unknown value is an error, never a fallthrough.
 
 ```
 HandlerRegistry:
-    handlers        : Map<String, Handler>   -- type string -> handler instance
-    default_handler : Handler                -- fallback handler (typically codergen)
+    handlers : Map<String, Handler>   -- type string -> handler instance
 
     FUNCTION register(type_string, handler):
         handlers[type_string] = handler
         -- Registering for an already-registered type replaces the previous handler
 
-    FUNCTION resolve(node) -> Handler:
-        -- 1. Explicit type attribute
-        IF node.type is not empty AND node.type IN handlers:
+    FUNCTION resolve(node) -> OneOf<Handler, Error>:
+        -- A typo ("my_custom_typ") or an unregistered custom type must
+        -- not silently execute different work -- caught statically by
+        -- lint ERROR type_known (Section 7.2), and terminally here if
+        -- an unlinted graph reaches execution
+        IF node.type IN handlers:
             RETURN handlers[node.type]
-
-        -- 2. Shape-based resolution
-        handler_type = SHAPE_TO_TYPE[node.shape]
-        IF handler_type IN handlers:
-            RETURN handlers[handler_type]
-
-        -- 3. Default
-        RETURN default_handler
+        RETURN Error("terminal", "unknown handler type: " + node.type)
 ```
 
 ### 4.3 Start Handler
@@ -814,14 +933,14 @@ StartHandler:
         RETURN Outcome(notes="run started")
 ```
 
-Every graph must have exactly one start node (shape=Mdiamond or id matching `start`/`Start`), and it must have exactly one outgoing edge -- the start node contains no chooser. The lint rules enforce both.
+Every graph must have exactly one node with `type="start"`, and it must have exactly one outgoing edge -- the start node contains no chooser. The lint rules enforce both.
 
 ### 4.4 Exit Handler
 
 A no-op handler for the pipeline exit point. Reaching it completes the run
 (Section 3.2); the handler itself never executes.
 
-Every graph must have exactly one exit node (shape=Msquare or id matching `exit`/`end`).
+Every graph must have exactly one node with `type="exit"`.
 
 ### 4.5 Codergen Handler (LLM Task)
 
@@ -900,7 +1019,7 @@ FUNCTION choice_schema(offered, graph) -> JSON Schema:
       "properties": {
         "next": {
           "type": "string",
-          "enum": [e.to_node FOR e IN offered],
+          "enum": [e.to FOR e IN offered],
           "description": describe_routes(offered, graph)
         },
         "notes": { "type": "string",
@@ -915,14 +1034,15 @@ FUNCTION describe_routes(offered, graph) -> String:
     -- condition first, target ID as the answer key:
     --   "Choose the next stage. Tests failed -- fix and retry: implement;
     --    Tests passed: review"
-    -- The condition is the edge's label. Lint guarantees the label exists
-    -- wherever this function runs: every outgoing edge of a codergen node
-    -- with more than one outgoing edge must be labeled (lint ERROR
-    -- `branch_label_missing`, Section 7.2). If an unlinted graph reaches
-    -- here anyway, fall back to the target's label, then the target's ID.
+    -- The condition is the edge's `condition` field. Lint guarantees it
+    -- exists wherever this function runs: every outgoing edge of a
+    -- codergen node with more than one outgoing edge must carry one
+    -- (lint ERROR `edge_condition_missing`, Section 7.2). If an unlinted
+    -- graph reaches here anyway, fall back to the target's label, then
+    -- the target's ID.
 ```
 
-**Variable expansion:** The only built-in template variable is `$goal`, which resolves to the graph-level `goal` attribute. Variable expansion is simple string replacement, not a templating engine.
+**Variable expansion:** The only built-in template variable is `$goal`, which resolves to the top-level `goal` field. Variable expansion is simple string replacement, not a templating engine.
 
 **Outcome file:** The engine -- not the handler -- writes `outcome.json` in the stage directory for every successful execution of every handler type (Section 3.5). It is an audit record for observers (Appendix C); the engine never reads it back.
 
@@ -980,66 +1100,67 @@ The recommended implementation is a harness-backed backend -- a thin
 wrapper and routing layer over third-party coding agent harness
 software; Section 12 is its full specification.
 
-### 4.6 Wait For Human Handler
+### 4.6 Human Interaction: A Pattern, Not a Node Type
 
-Blocks pipeline execution until a human selects one of the offered successors. This is the same successor-choice mechanism as every other node (Section 3.3) with a human as the chooser; see Section 6 for the Interviewer protocol.
+There is no human-gate handler. Human participation is an authoring
+pattern built from the primitives that already exist, chosen by how much
+judgment versus determinism the decision needs:
 
-```
-WaitForHumanHandler:
-    interviewer : Interviewer  -- the human interaction frontend
+- **Agent-conducted interview (judgment, N-way).** A codergen node whose
+  prompt says to contact the person -- through whatever tools its harness
+  has (a Slack MCP server, email, a CLI notifier) -- wait for their
+  answer, and route on it through the ordinary choice schema
+  (Section 4.5). The agent owns the waiting and the interpretation, and
+  the whole wait happens *inside one backend turn* -- polling with
+  exponential backoff via its shell, not engine turns or retry
+  attempts. How long a harness can actually hold one turn open --
+  process lifetime, inference cost of the polling loop, tool-session
+  authentication -- is an implementation limit the backend contracts do
+  not guarantee and authors must validate against their harness; where
+  those limits bind, the deterministic block below or a custom durable
+  gate is the robust choice. The exchange lands in the run log like any
+  other turn. This is a *soft* gate: the schema constrains which target
+  the agent names, not whether it reported the human faithfully.
+- **Deterministic block (mechanical, two-way).** A `tool` node running a
+  program that sends the message, blocks until a response arrives, and
+  exits 0 or nonzero (Section 4.7). No model in the loop, exit-code
+  routing -- deterministic in route selection, though not in external
+  delivery (below).
+- **Anything else.** A custom handler (Section 4.10) for implementations
+  that want a bespoke gate -- a durable inbox, an authenticated answer
+  channel, a delivery guarantee.
 
-    FUNCTION execute(node, offered, scope, graph)
-        -> OneOf<Outcome, Error>:
-        -- 1. Derive choices from the offered successors
-        choices = []
-        FOR EACH edge IN offered:
-            label = edge.label OR edge.to_node
-            key = parse_accelerator_key(label)
-            choices.append(Choice(key=key, label=label, to=edge.to_node))
+Two properties both patterns inherit from ordinary execution semantics,
+to be stated rather than discovered:
 
-        -- 2. Build question from choices
-        question = Question(
-            text=node.label OR "Select an option:",
-            options=[Option(key=c.key, label=c.label) FOR c IN choices],
-            default=node.attrs["human.default_choice"],   -- optional
-            timeout_seconds=(node.attrs["human.timeout"]
-                             IF node.attrs["human.default_choice"] is set
-                             ELSE NONE),   -- a timeout requires a default
-            stage=node.id
-        )
+- **The node `timeout`, if set, must cover the complete human wait** --
+  it bounds the whole backend turn (or tool command), and expiry
+  interrupts the attempt and fails the run (Sections 2.5, 3.7). Leave
+  it unset or generous.
+- **Contact is not transactional.** The engine guarantees neither
+  delivery nor deduplication. An execution may be retried, crash-replayed,
+  or resumed (Sections 3.5, 5.3), so an externally visible contact
+  attempt may happen zero times (the agent failed before sending, or
+  never sent), once, or several times -- and the engine supplies no
+  cross-execution decision identity to key on: a re-execution of the
+  same decision and a loop legitimately revisiting the node for a *new*
+  decision look identical in `ExecutionScope`. No generic deduplication
+  recipe exists within that scope. Authors whose workflow carries an
+  external stable identity (a ticket number, a PR URL, a thread the
+  channel itself threads) can correlate channel-specifically; that is
+  mitigation, not a guarantee, and it is the author's. As evidence, the
+  contact channel is the only record that spans every replay path;
+  a reused session's memory (Section 5.4) and a workspace marker
+  (Section 5.5) hold only at the top level where the workdir is stable,
+  and nothing survives into a replayed fan-out's fresh worktrees and
+  rebound sessions (Section 4.8). The run log is evidence, not a
+  delivery ledger.
 
-        -- 3. Present to interviewer and wait for answer -- or the stop
-        --    signal, whichever comes first (Section 4.1)
-        answer = race(interviewer.ask(question), scope.stop.wait())
-        IF scope.stop.is_set():
-            RETURN Error("interrupted", "run stopped at gate " + node.id)
-
-        -- 4. Resolve the selection
-        IF answer is TIMEOUT:
-            selected = choice whose target matches node.attrs["human.default_choice"]
-        ELSE:
-            selected = find_choice_matching(answer, choices)
-
-        -- 5. Return the human's routing decision
-        RETURN Outcome(
-            next=selected.to,
-            notes="human selected: " + selected.label
-        )
-```
-
-A gate with no timeout blocks indefinitely; a timeout is only meaningful
-together with `human.default_choice` (lint `human_timeout_default`). A gate
-with a single offered successor still presents it -- the human confirms
-before the run proceeds, even though no routing decision exists.
-
-**Accelerator key parsing** extracts shortcut keys from edge labels using these patterns:
-
-| Pattern           | Example           | Extracted Key |
-|-------------------|-------------------|---------------|
-| `[K] Label`       | `[Y] Yes, deploy` | `Y`           |
-| `K) Label`        | `Y) Yes, deploy`  | `Y`           |
-| `K - Label`       | `Y - Yes, deploy` | `Y`           |
-| First character   | `Yes, deploy`     | `Y`           |
+The external operator is the other half of the story: a supervisor --
+human at a frontend, or a coding agent -- watches the event stream and
+steers the run (Sections 3.9, 10). Section 6 develops the pattern;
+upstream's `wait.human` node, Interviewer protocol, and Question/Answer
+models are intentionally omitted.
 
 ### 4.7 Tool Handler
 
@@ -1072,7 +1193,7 @@ ToolHandler:
             RETURN Error("terminal",
                          command + " exited " + result.exit_code)
 
-        IF route NOT IN [e.to_node FOR e IN offered]:
+        IF route NOT IN [e.to FOR e IN offered]:
             RETURN Error("terminal",
                          "exit-code route " + route +
                          " has exhausted its visit budget")
@@ -1109,23 +1230,31 @@ to converge on the designated fan-in node, then hands control to the fan-in.
 ParallelHandler:
     FUNCTION execute(node, offered, scope, graph)
         -> OneOf<Outcome, Error>:
-        -- 1. Every offered edge is a branch root
+        -- 1. Every offered edge is a branch root. Offered, not
+        --    outgoing: a branch root at its max_visits is excluded and
+        --    the fan-out SHRINKS -- normative, and usually not what an
+        --    author wants (lint WARNING branch_root_max_visits;
+        --    bound loops at the parallel node instead)
         branches = offered
         fan_in = designated_fan_in(node, graph)
             -- the parallel.fan_in node on which all branch paths converge;
             -- existence and convergence are lint-enforced (Section 7.2)
-        max_parallel = integer(node.attrs.get("max_parallel", "4"))
+        max_parallel = node.max_parallel        -- default 4 (Section 2.5)
 
         -- 2. Freeze one parent state, give every branch its own worktree
         snapshot = freeze_workspace(scope.workdir)
-            -- the current HEAD plus uncommitted changes, captured without
-            -- mutating the user's branch or index
+            -- one frozen parent state: HEAD, plus tracked modifications,
+            -- plus untracked-but-not-ignored files, captured without
+            -- mutating the user's branch or index (e.g. a temporary-index
+            -- commit-tree). Ignored files are never captured. A workdir
+            -- that is not a git repository is a terminal Error: the
+            -- parallel handler requires a git workspace.
         results = []
         FOR EACH branch IN branches (up to max_parallel at a time):
-            wt = create_worktree(snapshot, branch.to_node)
+            wt = create_worktree(snapshot, branch.to)
                 -- engine-invoked git; an isolated worktree per branch,
                 -- every branch starting from the same frozen state
-            walk = walk_branch(branch.to_node, until=fan_in,
+            walk = walk_branch(branch.to, until=fan_in,
                                workdir=wt, stop=scope.stop)
                 -- the Section 3.2 loop over the branch's nodes MINUS its
                 -- bookkeeping: no checkpoint saves, no last_stage /
@@ -1135,24 +1264,38 @@ ParallelHandler:
                 -- the run's stop signal. Stops when the walk reaches
                 -- fan_in
             results.append(BranchResult(
-                branch_id=branch.to_node,     -- the branch root's ID
+                branch_id=branch.to,     -- the branch root's ID
                 outcome_or_error=walk.result,
                 notes=walk.final_notes,
                 path=walk.node_ids,
                 workdir=wt,
                 stage_dirs=walk.stage_dirs,
                 segments=walk.segment_paths))
+                -- segment attribution: the engine notes the position of
+                -- events/index.jsonl at fan-out start and credits a
+                -- branch with the later index entries whose node_id lies
+                -- on its walked path -- earlier fan-outs' segments for
+                -- the same node IDs are before the mark and excluded
 
-        -- 3. All branches must converge (wait_all)
+        -- 3. Write the branch evidence FIRST -- success or failure
+        --    (Section 4.9); BranchResult carries outcome_or_error
+        --    precisely so a failed fan-out's table exists for the
+        --    observer and the resumed run's operator
+        write_json(scope.stage_dir + "branches.json", results)
+
+        -- 4. All branches must converge (wait_all)
         FOR EACH r IN results:
             IF r.outcome_or_error is an Error:
                 RETURN r.outcome_or_error   -- a dead branch fails the run
-                -- (3.7); walk_branch wraps a branch-level run-failure
-                -- (exhausted successors, unoffered choice) as a terminal
-                -- Error carrying that failure reason
-
-        -- 4. Write the branch evidence for the fan-in (Section 4.9)
-        write_json(scope.stage_dir + "branches.json", results)
+                -- (3.7). walk_branch wraps EVERY branch failure as a
+                -- terminal Error carrying the failure reason -- a
+                -- branch-level run-failure (exhausted successors,
+                -- unoffered choice) and equally a turn Error that
+                -- survived its own node's retry budget -- EXCEPT that
+                -- interrupted stays interrupted (Appendix D). A parallel
+                -- execution therefore never returns a retryable Error:
+                -- retries exist only inside branches, and the top-level
+                -- retry loop (3.5) never re-runs a whole fan-out
         RETURN Outcome(next=fan_in.id,
                        notes=size(branches) + " branches converged")
 ```
@@ -1160,25 +1303,61 @@ ParallelHandler:
 Branches exchange nothing while in flight (Section 3.8): each works in its
 own worktree, so concurrent agents never see each other's partial edits, and
 each branch's product is a genuinely independent candidate. Worktrees are
-engine-owned, created at an implementation-chosen location recorded in
-`branches.json`, and MUST survive at least until the fan-in node completes;
-removing them is a Finalize cleanup (Section 3.1).
+engine-owned, created fresh for each execution of the parallel node at an
+implementation-chosen location recorded in `branches.json`, and MUST
+survive at least until the fan-in node completes. At creation the engine
+also appends `{path, branch_id, ts}` to `{logs_root}/worktrees.jsonl` --
+the durable inventory Finalize sweeps for cleanup, which unlike
+`branches.json` (written only when every branch walk returns) also names
+the worktrees of a fan-out that crashed or died before its walks
+returned. Removal happens only in
+a **completed** run's Finalize (Section 3.1); a failed run leaves all its
+worktrees on disk, conservatively. The distinction: a failure at or after
+the fan-in resumes at the fan-in, which needs the already-converged
+candidates it is asked to evaluate (Section 4.9); a failure of the
+parallel node itself resumes at the parallel node, which replays the
+fan-out in fresh worktrees -- its old worktrees are retained as evidence
+only, never re-entered.
 
 `branches.json` is the fan-in's evidence, written to the parallel node's own
 stage directory: one `BranchResult` per branch -- branch root ID, final
 outcome or error, notes, the node path walked, the branch's **worktree
-path**, its per-execution stage directories, and its run-log segment paths.
+path**, its per-attempt stage directories, and its run-log segment paths.
 Being a run-directory file, it survives a crash for free and doubles as an
 observer surface (Section 5.6).
 
-**The parallel step is atomic with respect to checkpointing.** No checkpoint
-is written between fan-out and convergence; a crash mid-fan-out resumes from
-the pre-parallel checkpoint and re-runs all branches -- an accepted re-run
-(Section 12.2, note 11).
+**The parallel step is atomic with respect to checkpointing -- and to
+counters.** No checkpoint is written between fan-out and convergence; a
+crash mid-fan-out resumes from the pre-parallel checkpoint and re-runs all
+branches -- an accepted re-run (Section 12.2, note 11). The engine
+snapshots the visit and attempt counters when it dispatches a parallel
+node (immediately after the parallel node's own visit increment); if the
+parallel node's execution returns an Error, the engine restores that
+snapshot before writing the failure checkpoint -- except the parallel
+node's **own** visit and attempt counters, which keep their true values
+(they record reality; only the branch deltas that resume will redo are
+rolled back). Resume then re-runs the whole step with the same budget
+arithmetic a crash-resume gets -- branch work that will be redone is not
+double-counted against `max_visits`. Stated as one policy: **a failed
+parallel attempt is discarded as a unit.** Its branch counter deltas are
+rolled back; its branch thread bindings may linger in `sessions` but are
+stale by workdir and replaced with fresh sessions when the replayed
+fan-out's new worktrees arrive (Section 12.1); its worktrees and stage
+directories remain on disk as evidence (`worktrees.jsonl`,
+`branches.json`) but carry no engine state forward. Branch progress is
+never partially resumed.
 
-**Branches are structurally independent.** Branch node-sets must be pairwise
-disjoint except for the shared fan-in, and a parallel node may not appear
-inside a branch (lints `branch_disjoint`, `no_nested_parallel`,
+**Branches are structurally independent.** A **branch node-set** is the set
+of nodes reachable from a branch root along paths that do not pass through
+the designated fan-in; this is the definition every branch-scoped rule
+quantifies over (lints, thread boundaries, segment attribution). Branch
+node-sets must be pairwise disjoint except for the shared fan-in, a
+parallel node may not appear inside a branch, and every incoming edge of a
+branch-interior node must originate inside the same parallel's branches
+(branch roots additionally accept their parallel node) -- otherwise the
+top-level walk could stroll into branch territory, reach the fan-in with
+no fan-out having run, and rebind branch threads across the worktree
+boundary (lints `branch_disjoint`, `no_nested_parallel`, `branch_entry`,
 Section 7.2). Shared intermediate nodes would race on visit budgets and
 double-execute; nested fan-out is out of scope for this version.
 
@@ -1206,10 +1385,14 @@ FanInHandler:
         par = parallel_node_of(node, graph)
             -- the parallel node that designates this fan-in; exactly one
             -- exists (lint `fan_in_single_parallel`, Section 7.2)
-        results = read_json(stages_latest(par.id) + "branches.json")
+        results = read_json(stages_latest(scope, par.id) + "branches.json")
             -- the BranchResults written by that parallel node's most
             -- recent execution (Section 4.8), located through the
-            -- stages/latest/{node_id} pointer (Section 5.6)
+            -- stages/latest/{node_id} pointer (Section 5.6).
+            -- stages_latest resolves against the handler's own stage
+            -- directory: parent(scope.stage_dir) + "/latest/" + node_id
+            -- -- every stage dir is a sibling under stages/, so no
+            -- logs_root is needed
 
         prompt = node.prompt
         IF prompt is empty:
@@ -1229,7 +1412,8 @@ its own tools -- reading and diffing the branch worktrees at their
 `BranchResult` paths, running checks, and applying the chosen candidate (or
 a synthesis) to the main workspace. Like any codergen node, the fan-in
 routes by choosing among its own offered successors: proceed with the
-merged result, loop back for another round, or escalate to a human gate.
+merged result, loop back for another round, or escalate to a node that
+brings in a human (Section 6).
 
 ### 4.10 Custom Handlers
 
@@ -1246,8 +1430,11 @@ MyCustomHandler:
 -- Register it
 registry.register("my_custom_type", MyCustomHandler())
 
--- Reference in DOT file
-my_node [type="my_custom_type", shape=box, custom_attr="value"]
+-- Reference in the pipeline JSON (Section 2.5: custom-type nodes carry
+-- their configuration in the `custom` object)
+{ "id": "my_node", "type": "my_custom_type",
+  "custom": { "custom_attr": "value" },
+  "edges": [{ "to": "next_stage" }] }
 ```
 
 **Handler contract:**
@@ -1272,13 +1459,14 @@ Section 5.5 for how data actually moves between nodes).
 ```
 EngineState:
     completed_nodes : List<String>          -- ordered audit trail (3.2)
-    node_visits     : Map<String, Integer>  -- executions per node (3.4)
+    node_visits     : Map<String, Integer>  -- top-level dispatches per node (3.4)
     node_attempts   : Map<String, Integer>  -- retry attempts per node (3.5)
     last_stage      : String                -- last completed top-level stage
     last_response   : String                -- its truncated notes
     seq             : Integer               -- run-wide stage-dir sequence
                                             -- (Section 3.5); allocation is
-                                            -- atomic across branch walks
+                                            -- atomic across branch walks;
+                                            -- checkpointed (Section 5.3)
 ```
 
 `last_stage` and `last_response` exist because they cost nothing to maintain
@@ -1333,10 +1521,22 @@ Checkpoint:
     completed_nodes : List<String>            -- IDs of all completed nodes in order
     node_visits     : Map<String, Integer>    -- visit counters per node (Section 3.4)
     node_attempts   : Map<String, Integer>    -- retry-attempt counters per node (Section 3.5)
+    seq             : Integer                 -- the stage-dir sequence counter
+                                              -- (Sections 3.5, 5.1); restored on
+                                              -- resume so a resumed run never
+                                              -- reuses an existing stages/ name
+    retry_visit     : Bool                    -- true on every failure checkpoint
+                                              -- (a written one always follows a
+                                              -- consumed execution): resume then
+                                              -- CONTINUES that visit instead of
+                                              -- counting a new one (below).
+                                              -- False on initial, success, and
+                                              -- final checkpoints
     last_stage      : String                  -- observer convenience (Section 5.1)
     last_response   : String                  -- observer convenience (Section 5.1)
-    sessions        : Map<String, ThreadBinding>  -- thread key -> harness and
-                                                  -- session ID (Section 12.1)
+    sessions        : Map<String, ThreadBinding>  -- thread key -> harness,
+                                                  -- session ID, and workdir
+                                                  -- (Section 12.1)
 ```
 
 Serialized as JSON to `{logs_root}/checkpoint.json`, replaced atomically on
@@ -1346,22 +1546,45 @@ each save.
 in-memory Outcome (the engine never reads `outcome.json` back, Appendix C).
 A success checkpoint is written after the choice is resolved (Section 3.2),
 so the walk's position survives a crash. A **failure checkpoint**
-(Section 3.7) names the failed node as its own `next_node` and leaves
+(Section 3.7) names the failed node as both `current_node` and `next_node`
+-- the node the walk was on is the node resume retries -- and leaves
 `completed_nodes` untouched; everything else -- counters, `sessions` --
-records what actually happened, so a session the dying node opened is
-durably bound. The final checkpoint written at Finalize records the
-terminal node as `current_node` with an empty `next_node`.
+records what actually happened (with the parallel counter-rollback
+exception, Section 4.8), so a session the dying node opened is durably
+bound. Every written failure checkpoint follows a consumed execution (the
+pre-execution failures write nothing, Section 3.7), so it sets
+`retry_visit`: the resumed execution is a **continuation of that consumed
+visit**, exactly as a same-process retry attempt is (Section 3.5), and
+the engine skips the visit increment for the first execution after such
+a resume. Without this rule a `max_visits=1` node
+that failed would be either unresumable (budget check blocks it) or able
+to execute twice (no check); with it, failure-resume and in-process retry
+have identical budget arithmetic. The **initial checkpoint** written at Initialize (Section 3.1) has
+an empty `current_node`, the start node as `next_node`, zeroed counters,
+and empty collections -- resume before any execution simply starts the
+walk. The final checkpoint written at Finalize records the terminal node
+as `current_node` with an empty `next_node`.
 
 **Resume behavior:**
 
 1. Load the checkpoint from `{logs_root}/checkpoint.json`.
-2. Restore `last_stage`/`last_response` and the visit and attempt counters.
-   `completed_nodes` is an ordered audit trail, not a skip list -- loops
-   legally revisit nodes.
+2. Restore `last_stage`/`last_response` and the visit and attempt
+   counters. Recover the stage-dir sequence counter as
+   `seq = max(checkpoint.seq, highest sequence present under stages/)`,
+   where `seq` always denotes the **last allocated** number (the next
+   allocation is `recovered + 1`) and the scan ignores `stages/latest/`.
+   The scan matters because stage directories are created *before*
+   execution while checkpoints land after, so a crash mid-fan-out leaves
+   completed branch directories the pre-parallel checkpoint has never
+   heard of. This is the exact analogue of the backend's `events/`
+   recovery (Section 12.1); with it, existing `stages/` directories are
+   never reused. `completed_nodes` is an ordered audit trail, not a skip
+   list -- loops legally revisit nodes.
 3. Continue execution at `next_node`. After a success checkpoint that is
    the already-resolved successor -- the routing question was answered
    before the save; resume never re-derives or re-asks a choice. After a
-   failure checkpoint it is the failed node, retried. If the crash happened
+   failure checkpoint it is the failed node, retried -- with the visit
+   increment skipped once when `retry_visit` is set. If the crash happened
    mid-execution of `next_node`, its work is simply re-run -- the only
    re-run resume ever pays, and an accepted one (Section 12.2, note 11).
 4. Restore the sessions map to the backend. Session persistence is the
@@ -1399,28 +1622,32 @@ The upstream specification defines additional summary-carrying modes
 text into a fresh session. Those are extra work above and beyond the three
 base modes, and how such summaries would be extracted from a harness session
 is currently under-defined -- implementations MAY add them as needed; this
-specification does not define them.
+specification does not define them. A fidelity value the active
+implementation does not support is a validation ERROR (`fidelity_valid`,
+Section 7.2) and, if an unlinted graph reaches execution anyway, a terminal
+Error from the backend (Section 12.1) -- an unrecognized mode never falls
+through to accidental fresh-session semantics.
 
 **Fidelity resolution precedence (highest to lowest):**
 
-1. Target node `fidelity` attribute
-2. Graph `default_fidelity` attribute
+1. Target node `fidelity` field
+2. `defaults.fidelity` (Section 2.7)
 3. Default when unset: `compacted`
 
 **Thread resolution (for session-reusing modes):**
 
 When fidelity resolves to `full` or `compacted`, the engine determines a thread key for session reuse:
 
-1. Target node `thread_id` -- explicit, or inherited from a subgraph or
-   node-default block (Sections 2.10, 2.11)
+1. Target node `thread_id` -- explicit on the node; `thread_id` is not
+   defaultable (Section 2.7)
 2. Otherwise: the node's own ID
 
 That is the whole rule. By default every node owns its own thread: revisits
 of a node continue that node's session -- which is what makes the default
 `compacted` fidelity matter for loops -- and distinct nodes (including
 parallel branch roots) get distinct keys automatically. Sharing one
-conversation across several nodes is opt-in via an explicit `thread_id`,
-typically set once in a subgraph's node-default block. Resolution is fully
+conversation across several nodes is opt-in via an explicit `thread_id`
+named on each sharing node (Section 2.7). Resolution is fully
 static: a node's thread key never depends on the path that reached it.
 Explicit `thread_id` values must not collide with node IDs (lint
 `thread_id_collision`, Section 7.2), so the implicit per-node threads and
@@ -1461,18 +1688,20 @@ Each pipeline execution produces a directory tree for logging, checkpoints, and 
 
 ```
 {logs_root}/
-    checkpoint.json              -- Serialized checkpoint after each execution (Section 5.3)
+    checkpoint.json              -- Serialized checkpoint after each top-level execution (Section 5.3)
     manifest.json                -- Pipeline metadata (name, goal, start time) and control-surface advertisement (Section 3.9)
     timeline.jsonl               -- Engine event stream as JSONL (Section 10)
+    worktrees.jsonl              -- Append-only worktree inventory, one line per branch worktree created; Finalize's cleanup sweep (Section 4.8)
     events/
         index.jsonl              -- Append-only segment index: one line per segment created (Section 12.4)
         {seq}-{node_id}.jsonl    -- Run-log segment per backend turn (Section 12.4)
-    current.jsonl                -- Symlink to the in-progress segment, or to events/index.jsonl during a fan-out (Section 12.4)
+    current.jsonl                -- Symlink to the in-progress segment; best-effort pointer to events/index.jsonl while more than one turn is live (Section 12.4)
     stages/
-        {seq}-{node_id}/         -- One directory per handler execution, engine-created (Section 3.5); seq is run-wide and monotonic, so a loop revisit or retry never overwrites an earlier execution
+        {seq}-{node_id}/         -- One directory per handler execution, engine-created (Section 3.5); seq is run-wide, monotonic, checkpointed (Section 5.3), and zero-padded to six digits so directory listings sort in execution order. A loop revisit, retry, or resumed run never overwrites an earlier execution
             prompt.md            -- Rendered prompt sent to LLM
             response.md          -- LLM response text
-            outcome.json         -- The execution's Outcome, engine-written (Appendix C)
+            outcome.json         -- The execution's Outcome, engine-written on success (Appendix C)
+            error.json           -- The attempt's Error category and message, engine-written on failure (Section 3.5)
             steering.jsonl       -- Steering audit records (Section 3.9)
             tool.log             -- Tool nodes: captured stdout/stderr (Section 4.7)
             branches.json        -- Parallel nodes: BranchResult evidence for the fan-in (Section 4.8)
@@ -1482,77 +1711,53 @@ Each pipeline execution produces a directory tree for logging, checkpoints, and 
 
 ---
 
-## 6. Human-in-the-Loop (Interviewer Pattern)
+## 6. Human-in-the-Loop (Authoring Pattern)
 
-### 6.1 Interviewer Interface
+Attractor has no human-interaction protocol. There is no gate node type,
+no Interviewer interface, no Question/Answer model, and no frontend
+contract to implement. Reaching a human is not solved at design time; it
+is solved at authoring time and at operating time, by intelligences that
+already have their own channels.
 
-All human interaction in Attractor goes through an Interviewer interface. This abstraction allows the pipeline to present a choice to a human and receive the answer through any frontend: CLI, web UI, Slack bot, or a programmatic callback for testing.
+### 6.1 The Two Halves
 
-```
-INTERFACE Interviewer:
-    FUNCTION ask(question: Question) -> Answer
-```
+**In the graph (authoring time).** A decision that needs a human is a
+node like any other, built from existing primitives -- Section 4.6 gives
+the ladder: a codergen node that conducts the interview with its own
+tools and routes through the choice schema; a `tool` node running a
+program that blocks deterministically and routes on its exit code; a
+custom handler for anything bespoke. The node's edges carry the
+decision's conditions (Sections 2.6, 4.5), exactly as at any other
+branch point -- "Approved", "Fixes requested" -- so the same graph
+reads the same way whether an agent, a program, or a person answers.
 
-One method, one question shape. There is a single kind of question because
-there is a single kind of human decision in this system: choosing among a
-gate's offered successors (Section 4.6). Free-text guidance to a running
-agent is not a question-and-answer -- it is steering (Section 3.9).
+### 6.2 The Operator
 
-### 6.2 Question and Answer Model
+**Outside the run (operating time).** The pipeline is built to be
+operated: the event stream narrates it (`timeline.jsonl`, Section 10),
+the run directory exposes every stage's evidence (Section 5.6), and the
+steering endpoint accepts guidance into the live turn (Section 3.9). A
+supervisor -- a person at a TUI, a Slack bot, or the coding agent that
+north-star operation contemplates -- watches events and intervenes by
+steering. Frontends are external observers with a POST verb, not
+protocol implementations.
 
-```
-Question:
-    text            : String              -- the question to present
-    options         : List<Option>        -- the offered choices
-    default         : String or NONE      -- target ID selected on timeout
-    timeout_seconds : Float or NONE       -- max wait time; NONE blocks forever
-    stage           : String              -- originating stage name (for display)
+### 6.3 What Upstream Has That This Does Not
 
-Option:
-    key   : String    -- accelerator key (e.g., "Y", "A")
-    label : String    -- display text (e.g., "Yes, deploy to production")
-
-Answer:
-    selected_option : Option or TIMEOUT
-```
-
-### 6.3 Built-In Interviewer Implementations
-
-**ConsoleInterviewer (CLI):** Reads from standard input. Displays formatted prompts with option keys. Supports timeout via non-blocking read.
-
-```
-ConsoleInterviewer:
-    FUNCTION ask(question) -> Answer:
-        print("[?] " + question.text)
-        FOR EACH option IN question.options:
-            print("  [" + option.key + "] " + option.label)
-        response = read_input("Select: ")
-        RETURN find_matching_option(response, question.options)
-```
-
-**CallbackInterviewer:** Delegates question answering to a provided callback function. Useful for integrating with external systems (Slack, web UI, API) and for tests.
-
-```
-CallbackInterviewer:
-    callback : Function(Question) -> Answer
-
-    FUNCTION ask(question) -> Answer:
-        RETURN callback(question)
-```
-
-Auto-approval (always pick the first option), scripted answer queues, and
-recording wrappers are all one-line callbacks; upstream's dedicated
-implementations of them are intentionally omitted.
-
-### 6.4 Timeout Handling
-
-If a human does not respond within `timeout_seconds`, the interviewer returns
-`TIMEOUT` and the gate follows the question's `default` (populated from
-`human.default_choice`, Section 4.6). A question with no timeout waits
-indefinitely; a timeout without a default is ignored by the gate and flagged
-by lint (`human_timeout_default`, Section 7.2).
-
----
+Upstream defines a `wait.human` node backed by an Interviewer protocol:
+`ask(question) -> Answer`, Question/Option/Answer models, console and
+callback implementations, accelerator-key parsing, timeout-with-default
+selection, and (in any concurrent setting) serialization rules for
+simultaneous asks, presentation-time timeout clocks, and abandoned-call
+cleanup. All of it is intentionally omitted. It solves the
+reach-the-human problem inside the engine, at design time, and every
+piece of it is protocol surface with no consumer the authoring pattern
+does not already serve: the blocking a gate provides is the `tool`
+node's blocking; the choice a gate collects is the choice schema; the
+frontend a gate needs is the operator that steering and events already
+serve. Implementations MAY of course ship a console convenience that
+watches events and answers a blocking tool via its own channel -- that
+is an implementation's frontend, not this specification's contract.
 
 ## 7. Validation and Linting
 
@@ -1579,9 +1784,9 @@ Severity:
 
 | Rule ID                  | Severity | Description |
 |--------------------------|----------|-------------|
-| `start_node`             | ERROR    | Pipeline must have exactly one start node (shape=Mdiamond or id matching `start`/`Start`). |
+| `start_node`             | ERROR    | Pipeline must have exactly one node with `type="start"`. |
 | `start_single_outgoing`  | ERROR    | The start node must have exactly one outgoing edge (Section 4.3). |
-| `terminal_node`          | ERROR    | Pipeline must have exactly one terminal node (shape=Msquare or id matching `exit`/`end`). |
+| `terminal_node`          | ERROR    | Pipeline must have exactly one node with `type="exit"`. |
 | `reachability`           | ERROR    | All nodes must be reachable from the start node via BFS/DFS traversal. |
 | `edge_target_exists`     | ERROR    | Every edge target must reference an existing node ID. |
 | `start_no_incoming`      | ERROR    | The start node must have no incoming edges. |
@@ -1593,17 +1798,20 @@ Severity:
 | `no_nested_parallel`     | ERROR    | A parallel node may not appear inside another parallel node's branches; nested fan-out is out of scope for this version. |
 | `fan_in_single_parallel` | ERROR    | Every `parallel.fan_in` node is the designated fan-in of exactly one parallel node (Section 4.9 depends on this being unambiguous). |
 | `parallel_thread_disjoint`| ERROR   | No two nodes that can execute concurrently (nodes of different branches of one parallel node) may resolve to the same thread key (Sections 4.8, 5.4). Fully static. |
+| `thread_branch_boundary` | ERROR    | A thread key resolved by a node inside a parallel branch must not be resolved by any node outside that branch (fan-in included): sessions are workdir-bound and cannot span the worktree boundary (Section 12.1). Fully static. |
+| `fan_in_entry`           | ERROR    | Every incoming edge of a `parallel.fan_in` node must originate inside its parallel node's branches -- a fan-in reached any other way would read branch evidence that does not exist (Section 4.9). |
+| `branch_entry`           | ERROR    | Every incoming edge of a branch-interior node must originate inside the same parallel's branches; branch roots additionally accept their parallel node (Section 4.8 defines the branch node-set). |
 | `max_visits_positive`    | ERROR    | `max_visits`, when set, must be a positive integer. |
 | `max_parallel_positive`  | ERROR    | `max_parallel`, when set, must be a positive integer. |
-| `max_retries_nonnegative`| ERROR    | `max_retries` and `default_max_retries`, when set, must be nonnegative integers. |
-| `human_default_valid`    | ERROR    | `human.default_choice`, when set, must name an outgoing-edge target of its node (Section 4.6). |
-| `branch_label_missing`   | ERROR    | Every outgoing edge of a codergen node with more than one outgoing edge must have a `label` -- the labels are the routing conditions presented to the model (Section 4.5). |
-| `type_known`             | WARNING  | Node `type` values should be recognized by the handler registry. |
-| `fidelity_valid`         | WARNING  | Fidelity mode values must be one of: `full`, `compacted`, `none` (plus any implementation-defined modes, Section 5.4). |
+| `max_retries_nonnegative`| ERROR    | `max_retries`, when set (on a node or in `defaults`), must be a nonnegative integer. |
+| `edge_condition_missing` | ERROR    | Every outgoing edge of a node that routes via the choice schema (codergen and `parallel.fan_in`) with more than one outgoing edge must have a `condition` that is non-empty after trimming whitespace -- the conditions are the routing text presented to the model (Section 4.5). An absent, empty, or whitespace-only condition all fail. |
+| `type_known`             | ERROR    | Every node `type` must be registered with the handler registry: an unknown value never falls through to another handler (Section 4.2). |
+| `fidelity_valid`         | ERROR    | Fidelity mode values must be one of `full`, `compacted`, `none`, or a mode the active implementation defines (Section 5.4). An unsupported mode is rejected, never given accidental runtime semantics (Section 12.1). |
 | `thread_id_collision`    | ERROR    | An explicit `thread_id` must not equal any node ID -- implicit per-node threads and named shared threads are separate namespaces (Section 5.4). |
 | `thread_harness_consistent`| ERROR  | Nodes sharing a resolved thread key under session-reusing fidelity modes (`full`, `compacted`) must resolve to models that route to the same harness (Section 12.1). Thread keys resolve statically (Section 5.4), so this check is fully static. |
-| `human_timeout_default`  | WARNING  | `human.timeout` on a human gate without `human.default_choice` has no effect (Section 6.4). |
-| `prompt_on_llm_nodes`    | WARNING  | Nodes that resolve to the codergen handler should have a `prompt` or `label` attribute. |
+| `fan_in_max_visits`      | WARNING  | `max_visits` on a `parallel.fan_in` node does not bound the loop at the parallel node (the fan-in is reached via the parallel's `next`, not an offered set); it takes effect only inside branch walks, where an exhausted fan-in starves the branches' final offered sets and fails the run (Sections 3.2-3.4). Bound the loop at the parallel node or a downstream node. |
+| `branch_root_max_visits` | WARNING  | `max_visits` on a parallel branch root silently shrinks later fan-outs: an exhausted root is excluded from the offered set the fan-out consumes (Section 4.8). Bound the loop at the parallel node instead. |
+| `prompt_on_llm_nodes`    | WARNING  | Codergen nodes should have a `prompt` or `label` field. |
 
 ### 7.3 Validation API
 
@@ -1642,11 +1850,11 @@ Custom rules are appended to the built-in rules and run during validation.
 
 ## 8. Model Selection
 
-### 8.1 Attributes
+### 8.1 Fields
 
-Three node attributes configure the LLM for a codergen node:
+Three node fields configure the LLM for a codergen node:
 
-| Attribute          | Values                      | Description |
+| Field              | Values                      | Description |
 |--------------------|-----------------------------|-------------|
 | `llm_model`        | Any model identifier string | Provider-native model ID (e.g., `gpt-5.2`, `claude-opus-4-6`) |
 | `llm_provider`     | Provider key string         | `openai`, `anthropic`, `gemini`, etc. Auto-detected from the model when unset. |
@@ -1656,46 +1864,43 @@ Three node attributes configure the LLM for a codergen node:
 
 For each property, the value on a node resolves as:
 
-1. Explicit node attribute -- highest precedence
-2. Scoped defaults: the enclosing subgraph's or file's `node [ ... ]` default
-   block (Sections 2.10, 2.11)
+1. Explicit node field -- highest precedence
+2. The file-level `defaults` object (Section 2.7)
 3. Implementation-configured system default
 
-Grouping is structural: to give a set of nodes the same model, put them in a
-subgraph with a `node [llm_model="..."]` block. Every codergen turn carries
-concrete resolved model, provider, and reasoning-effort values; session
-bindings never supply defaults for later turns (Section 12.1). The
-recommended system default for `reasoning_effort` is `high`.
+Every codergen turn carries concrete resolved model, provider, and
+reasoning-effort values; session bindings never supply defaults for later
+turns (Section 12.1). The recommended system default for
+`reasoning_effort` is `high`.
 
 Upstream defines a CSS-like `model_stylesheet` (selectors, classes,
 specificity arithmetic) for the same job. It is intentionally omitted:
-scoped defaults already express "these nodes use that model" without a
-second language.
+the file default covers the common case, and a node that differs names
+its model where a reader sees it.
 
 ### 8.3 Example
 
-```
-digraph Pipeline {
-    graph [goal="Implement feature X"]
-
-    start [shape=Mdiamond]
-    exit  [shape=Msquare]
-
-    plan [label="Plan", llm_model="claude-sonnet-4-5"]
-
-    subgraph cluster_code {
-        node [llm_model="claude-opus-4-6"]
-
-        implement       [label="Implement"]
-        critical_review [label="Critical Review", llm_model="gpt-5.2", reasoning_effort="high"]
-    }
-
-    start -> plan -> implement -> critical_review -> exit
+```json
+{
+  "goal": "Implement feature X",
+  "defaults": { "llm_model": "claude-opus-4-6" },
+  "nodes": [
+    { "id": "start", "type": "start", "edges": [{ "to": "plan" }] },
+    { "id": "plan", "type": "codergen",
+      "llm_model": "claude-sonnet-4-5",
+      "edges": [{ "to": "implement" }] },
+    { "id": "implement", "type": "codergen",
+      "edges": [{ "to": "critical_review" }] },
+    { "id": "critical_review", "type": "codergen",
+      "llm_model": "gpt-5.2", "reasoning_effort": "high",
+      "edges": [{ "to": "exit" }] },
+    { "id": "exit", "type": "exit" }
+  ]
 }
 ```
 
-`plan` names its model directly; `implement` inherits the subgraph default;
-`critical_review` overrides it.
+`implement` inherits the file default; `plan` and `critical_review` name
+their own models.
 
 ---
 
@@ -1712,7 +1917,7 @@ The extension points are deliberately few:
   array is an explicit extension point.
 
 **Variable expansion** is the one built-in graph preprocessing step: `$goal`
-in node prompts is replaced with the graph-level `goal` attribute -- simple
+in node prompts is replaced with the top-level `goal` field -- simple
 string replacement, applied by the codergen handler at prompt build time
 (Section 4.5), not a templating engine.
 
@@ -1749,11 +1954,6 @@ The engine emits typed events during execution for UI, logging, and metrics inte
 - `ParallelBranchCompleted(branch, index, duration)` -- branch converged
 - `ParallelCompleted(duration, branch_count)` -- all branches converged
 
-**Human interaction events:**
-- `InterviewStarted(question, stage)` -- question presented
-- `InterviewCompleted(question, answer, duration)` -- answer received
-- `InterviewTimeout(question, stage, duration)` -- timeout reached
-
 **Checkpoint events:**
 - `CheckpointSaved(node_id)` -- checkpoint written
 
@@ -1788,33 +1988,35 @@ FOR EACH event IN pipeline.events():
 
 This section defines how to validate that an implementation of this spec is complete and correct. An implementation is done when every item is checked off.
 
-### 11.1 DOT Parsing
+### 11.1 JSON Parsing
 
-- [ ] Parser accepts the supported DOT subset (digraph with graph/node/edge attribute blocks)
-- [ ] Graph-level attributes (`goal`, `label`, `default_max_retries`, `default_fidelity`) are extracted correctly
-- [ ] Node attributes are parsed including multi-line attribute blocks (attributes spanning multiple lines within `[...]`)
-- [ ] Edge `label` attributes are parsed correctly
-- [ ] Chained edges (`A -> B -> C`) produce individual edges for each pair
-- [ ] Node/edge default blocks (`node [...]`, `edge [...]`) apply to subsequent declarations
-- [ ] Subgraph blocks scope node defaults and are then flattened (contents kept, wrapper removed)
-- [ ] Quoted and unquoted attribute values both work
-- [ ] Comments (`//` and `/* */`) are stripped before parsing
+- [ ] Parser accepts a well-formed pipeline document (Section 2.1) and produces the in-memory Graph model with each node carrying its own edges
+- [ ] Top-level fields (`name`, `goal`, `defaults`, `nodes`) are extracted correctly
+- [ ] The node union validates per type: each type accepts exactly its own fields (Sections 2.4, 2.5)
+- [ ] File-level `defaults` fill unset node fields per the resolution order (Section 2.7); a default for a field a node type lacks does not apply
+- [ ] Duplicate node IDs, duplicate JSON member names within one object, invalid ID syntax, `null` values, wrong field types, and unknown fields at any level are parse errors (Section 2.8)
+- [ ] `defaults` admits exactly the six fields of Section 2.7; anything else there is a parse error; a required field is never satisfied from `defaults`
+- [ ] Duration strings parse (`"250ms"`, `"900s"`, `"15m"`, `"2h"`, `"1d"`); bare numbers are rejected
+- [ ] A custom-type node parses with its `custom` object carried opaquely
 
 ### 11.2 Validation and Linting
 
-- [ ] Exactly one start node (shape=Mdiamond or id matching `start`/`Start`) is required
+- [ ] Exactly one node with `type="start"` is required
 - [ ] Start node has exactly one outgoing edge and no incoming edges
-- [ ] Exactly one exit node (shape=Msquare or id matching `exit`/`end`) is required
+- [ ] Exactly one node with `type="exit"` is required
 - [ ] Exit node has no outgoing edges
 - [ ] Every non-terminal node has at least one outgoing edge (`dead_end`)
 - [ ] All nodes are reachable from start (no orphans)
 - [ ] All edges reference valid node IDs
 - [ ] Tool node routing validates (`tool_routing`: one or two successors; two requires `on_fail` naming one)
-- [ ] Codergen branch points have labeled edges (`branch_label_missing`: every outgoing edge of a codergen node with more than one outgoing edge carries a `label`)
+- [ ] Choice-schema branch points (codergen and fan-in) carry edge conditions (`edge_condition_missing`)
 - [ ] Parallel branches converge on a single fan-in (`parallel_fan_in`); branch node-sets are pairwise disjoint (`branch_disjoint`); no nested fan-out (`no_nested_parallel`); each fan-in belongs to exactly one parallel node (`fan_in_single_parallel`)
-- [ ] Concurrent branches resolve to distinct thread keys (`parallel_thread_disjoint`); explicit `thread_id` never collides with a node ID (`thread_id_collision`)
+- [ ] Concurrent branches resolve to distinct thread keys (`parallel_thread_disjoint`); no thread key spans a branch boundary (`thread_branch_boundary`); explicit `thread_id` never collides with a node ID (`thread_id_collision`)
+- [ ] Fan-in nodes are entered only from inside their parallel's branches (`fan_in_entry`); branch interiors are entered only from inside the same branches (`branch_entry`)
 - [ ] Numeric bounds validate (`max_visits_positive`, `max_parallel_positive`, `max_retries_nonnegative`)
-- [ ] `human.default_choice` names an outgoing-edge target (`human_default_valid`)
+- [ ] Unregistered `type` (`type_known`) and unsupported fidelity values (`fidelity_valid`) are ERRORs
+- [ ] Shared threads route to one harness (`thread_harness_consistent`)
+- [ ] Warnings fire: misleading budget placement (`fan_in_max_visits`, `branch_root_max_visits`)
 - [ ] Codergen nodes have a `prompt` or `label` (warning if missing)
 - [ ] `validate_or_raise()` throws on error-severity violations
 - [ ] Lint results include rule name, severity (error/warning), node/edge ID, and message
@@ -1822,28 +2024,29 @@ This section defines how to validate that an implementation of this spec is comp
 ### 11.3 Execution Engine
 
 - [ ] Engine resolves the start node and begins execution there
-- [ ] Each node's handler is resolved via shape-to-handler-type mapping
+- [ ] Each node's handler is resolved from the registry by its `type`; an unregistered type is a terminal pre-execution Error
 - [ ] Handler is called with (node, offered, scope, graph) and returns an Outcome or a categorized Error
 - [ ] The engine creates `stages/{seq}-{node_id}/` per handler attempt, passes it as `scope.stage_dir`, and writes the returned Outcome to `outcome.json` there for every handler type
-- [ ] `stages/latest/{node_id}` is repointed after each successful execution; earlier executions' directories are never overwritten
-- [ ] A set `scope.stop` makes every in-flight handler return an interrupted Error promptly
+- [ ] `stages/latest/{node_id}` is repointed after each successful execution; earlier executions' directories are never overwritten, including across resume (`seq` is checkpointed)
+- [ ] A failed attempt's stage directory carries an engine-written `error.json`
+- [ ] A set `scope.stop` makes every in-flight handler return an interrupted Error promptly; the engine also observes the signal before each dispatch and each retry attempt and during backoff sleeps
 - [ ] Offered successors exclude targets with exhausted visit budgets
 - [ ] Single offered successor: engine advances without a decision; codergen choice schema contains no `next`
 - [ ] Multiple offered successors: engine follows `outcome.next`; an unoffered `next` fails the run
 - [ ] Engine loops: offer -> execute -> resolve next -> checkpoint -> advance -> repeat
 - [ ] Checkpoint records the resolved successor (`next_node`); resume continues there without re-asking the choice
-- [ ] Terminal node (shape=Msquare) completes the run (`RunResult` COMPLETED)
+- [ ] Terminal node (`type="exit"`) completes the run (`RunResult` COMPLETED)
 
 ### 11.4 Visit Budgets
 
-- [ ] Every node execution increments its visit counter; counters are checkpointed
+- [ ] Every top-level dispatch of a node increments its visit counter (retry attempts and failure-resume re-executions do not, Sections 3.4, 5.3); counters are checkpointed
 - [ ] A node at `max_visits` is excluded from every offered set
-- [ ] An exhausted node is absent from the codergen choice-schema enum and not presented at human gates
+- [ ] An exhausted node is absent from the codergen choice-schema enum
 - [ ] When all of a node's successors are exhausted, the run fails with an explicit reason
 
 ### 11.5 Retry Logic
 
-- [ ] Turn errors categorized `retryable` are retried up to `max_retries` (node, else graph default, else 0)
+- [ ] Turn errors categorized `retryable` are retried up to `max_retries` (node, else `defaults.max_retries`, else 0)
 - [ ] `terminal` and `interrupted` errors fail the run without retry
 - [ ] Exponential backoff with jitter is applied between attempts
 - [ ] Attempt counts are tracked per node and checkpointed
@@ -1857,29 +2060,40 @@ This section defines how to validate that an implementation of this spec is comp
       CodergenTurn (choice schema, workdir) and calls
       `CodergenBackend.run()`, passes Errors to the engine, and writes
       prompt.md and response.md to `scope.stage_dir`
-- [ ] **Wait.human handler:** Presents offered successors to the interviewer, returns the selection as `next`; returns interrupted when stopped while waiting
 - [ ] **Tool handler:** Runs `tool_command` in `scope.workdir`; exit 0 routes to the success target, nonzero routes to `on_fail` or fails the run
-- [ ] **Parallel handler:** Freezes the workspace, walks each branch in its own git worktree, waits for all to converge on the fan-in, writes `branches.json` with BranchResult paths; a branch error fails the run
+- [ ] **Parallel handler:** Freezes the workspace, walks each branch in its own git worktree, waits for all branch walks to return, writes `branches.json` with BranchResult paths BEFORE propagating any branch error; a branch error fails the run as terminal
 - [ ] **Fan-in handler:** Executes as codergen with the BranchResults rendered into its prompt; branch worktrees exist at the recorded paths while it runs
 - [ ] Custom handlers can be registered by type string
 
 ### 11.7 State
 
 - [ ] Engine state is typed (`EngineState`, Section 5.1); handlers receive an ExecutionScope, never a generic context map
-- [ ] Checkpoint is saved after every execution: on success with the resolved `next_node`, on failure with the failed node as `next_node`, `completed_nodes` untouched, and counters and sessions recording what happened
-- [ ] Resume from checkpoint: load checkpoint -> restore state -> continue at next_node
+- [ ] Checkpoint is saved after every top-level execution (never between retry attempts): on success with the resolved `next_node`, on failure with the failed node as `current_node` and `next_node`, `completed_nodes` untouched, and counters and sessions recording what happened (parallel branch deltas rolled back, Section 4.8)
+- [ ] Resume from checkpoint: load checkpoint -> restore state, recovering `seq` as max(checkpoint, stages/ scan) -> continue at next_node
+- [ ] Resume from a failure checkpoint (`retry_visit`) skips the retried node's visit increment exactly once; a `max_visits=1` node failed and resumed repeatedly re-executes each time with `node_visits` still 1 (Sections 3.7, 5.3)
+- [ ] A failed run's worktrees survive on disk; a completed run's are cleaned up at Finalize by sweeping `worktrees.jsonl`
 - [ ] Stage artifacts are written to `{logs_root}/stages/{seq}-{node_id}/` (prompt.md, response.md, engine-written outcome.json)
 
 ### 11.8 Human-in-the-Loop
 
-- [ ] Interviewer interface works: `ask(question) -> Answer`
-- [ ] ConsoleInterviewer prompts in terminal and reads user input
-- [ ] CallbackInterviewer delegates to a provided function
-- [ ] Timeout with `human.default_choice` selects the default; timeout without a default is inert and lint-flagged
+No protocol to certify: human interaction has no engine surface
+(Sections 4.6, 6). The authoring pattern rides on machinery proven
+elsewhere -- the choice schema (11.5), the tool handler's blocking
+command and exit-code routing (11.6), and steering (11.10). But
+Section 4.6 states cross-feature replay semantics, and those are
+certified with one scenario (disclosure of limits, not delivery
+guarantees):
+
+- [ ] A node whose execution performs an observable external side effect
+  (a stub "send") fails after the side effect and is resumed: the side
+  effect occurs a second time, and nothing in `ExecutionScope`
+  distinguishes the re-execution from a fresh decision. Repeated inside
+  a parallel branch, the replayed fan-out runs in a fresh worktree with
+  a rebound session -- no marker file or session memory carries forward.
 
 ### 11.9 Model Selection
 
-- [ ] Node-level `llm_model`, `llm_provider`, `reasoning_effort` resolve with scoped defaults (subgraph/file `node [...]` blocks)
+- [ ] Node-level `llm_model`, `llm_provider`, `reasoning_effort` resolve with file-level `defaults` (Section 2.7)
 - [ ] Provider auto-detects from the model when unset
 - [ ] Every codergen turn carries concrete resolved model, provider, and reasoning-effort values
 
@@ -1889,6 +2103,7 @@ This section defines how to validate that an implementation of this spec is comp
 - [ ] Events are persisted to `{logs_root}/timeline.jsonl` as JSONL
 - [ ] Run-log segments, the segment index (`events/index.jsonl`), and `current.jsonl` behave per Section 12.4
 - [ ] Steering requests are audited to the active execution's `steering.jsonl`
+- [ ] The engine rejects steering while a parallel node is the active top-level execution, before backend handoff
 
 ### 11.11 Cross-Feature Parity Matrix
 
@@ -1897,8 +2112,8 @@ Run this validation matrix -- each cell must pass:
 | Test Case                                        | Pass |
 |--------------------------------------------------|------|
 | Parse a simple linear pipeline (start -> A -> B -> done) | [ ] |
-| Parse a pipeline with graph-level attributes (goal, label) | [ ] |
-| Parse multi-line node attributes                 | [ ] |
+| Parse a pipeline with top-level fields (goal, name, defaults) | [ ] |
+| Reject unknown fields and duplicate node IDs     | [ ] |
 | Validate: missing start node -> error            | [ ] |
 | Validate: missing exit node -> error             | [ ] |
 | Validate: unreachable node -> error              | [ ] |
@@ -1910,9 +2125,8 @@ Run this validation matrix -- each cell must pass:
 | Retryable turn error retried (max_retries=2), then run fails | [ ] |
 | `max_visits` exhaustion removes the target from offered sets | [ ] |
 | Run fails when every successor is exhausted      | [ ] |
-| Wait.human presents offered successors and routes on selection | [ ] |
 | Checkpoint save and resume produces same result   | [ ] |
-| Scoped model defaults apply; node attribute overrides | [ ] |
+| File-level `defaults.llm_model` applies; node field overrides | [ ] |
 | Prompt variable expansion ($goal) works           | [ ] |
 | Parallel fan-out runs branches in isolated worktrees and converges at fan-in with BranchResult evidence | [ ] |
 | Custom handler registration and execution works   | [ ] |
@@ -1926,26 +2140,31 @@ End-to-end test with a real LLM callback:
 ```
 -- Test pipeline: plan -> implement -> review -> done, with an agent-chosen
 -- fix loop and a visit budget
-DOT = """
-digraph test_pipeline {
-    graph [goal="Create a hello world Python script"]
-
-    start       [shape=Mdiamond]
-    plan        [shape=box, prompt="Plan how to create a hello world script for: $goal"]
-    implement   [shape=box, prompt="Write the code based on the plan", max_visits=3]
-    review      [shape=box, prompt="Review the code for correctness. Choose: finish if it is correct, or send it back to implementation with your findings."]
-    done        [shape=Msquare]
-
-    start -> plan
-    plan -> implement
-    implement -> review
-    review -> done      [label="Correct"]
-    review -> implement [label="Fix"]
+PIPELINE = """
+{
+  "name": "test_pipeline",
+  "goal": "Create a hello world Python script",
+  "nodes": [
+    { "id": "start", "type": "start", "edges": [{ "to": "plan" }] },
+    { "id": "plan", "type": "codergen",
+      "prompt": "Plan how to create a hello world script for: $goal",
+      "edges": [{ "to": "implement" }] },
+    { "id": "implement", "type": "codergen",
+      "prompt": "Write the code based on the plan", "max_visits": 3,
+      "edges": [{ "to": "review" }] },
+    { "id": "review", "type": "codergen",
+      "prompt": "Review the code for correctness. Choose: finish if it is correct, or send it back to implementation with your findings.",
+      "edges": [
+        { "to": "done", "condition": "Correct" },
+        { "to": "implement", "condition": "Fix" }
+      ] },
+    { "id": "done", "type": "exit" }
+  ]
 }
 """
 
 -- 1. Parse
-graph = parse_dot(DOT)
+graph = parse_pipeline(PIPELINE)
 ASSERT graph.goal == "Create a hello world Python script"
 ASSERT LENGTH(graph.nodes) == 5
 ASSERT LENGTH(edges_total(graph)) == 5
@@ -2107,6 +2326,75 @@ general model compliance with steering; or compatibility with future harness
 versions. Those cases constitute the bounded residual risk rather than reasons
 to delay the first usable adapter.
 
+### 11.14 HarnessBackend Conformance
+
+`HarnessBackend` is pure orchestration over the adapter seam, so -- unlike
+the adapter, which must be certified against its real harness
+(Section 11.13) -- the backend's behavior is proven with **scripted
+adapters** injected through the `adapters` map: test doubles that record
+calls, return prepared objects and Errors, and let every claim below run
+deterministically without a provider. The two certifications compose: a
+real adapter passing 11.13 behind a backend passing this section is the
+release-ready `CodergenBackend`.
+
+A `HarnessBackend` implementation is done when an executable suite proves,
+through the public `CodergenBackend` surface plus `bindings()` and the run
+directory:
+
+- [ ] **Harness selection.** The resolved provider/model selects the
+      adapter via the configured routing table; an unroutable
+      provider/model is a terminal Error.
+- [ ] **Binding at open.** A reusable thread is bound
+      `{harness, session_id, workdir}` at session open, before the first
+      turn completes: `bindings()` taken mid-turn already contains it, so
+      a failure checkpoint durably records the session the dying node
+      opened (Section 5.3).
+- [ ] **`full`.** A revisit reuses the exact bound session and never calls
+      `compact`.
+- [ ] **`compacted`.** A revisit calls `compact` and awaits success before
+      `run_turn`; a compact Error is returned categorized, and the revisit
+      prompt is never sent (Section 5.4).
+- [ ] **`none`.** Every visit opens a fresh session under the disjoint
+      `none_key` namespace, replacing the prior binding; the live turn is
+      steerable like any other.
+- [ ] **Workdir binding.** The full workdir x harness matrix on a bound
+      reusable thread: same harness + same workdir reuses the session;
+      same harness + different workdir treats the binding as stale -- a
+      fresh session opens in the turn's workdir and replaces the binding,
+      with no Error; a different harness is a terminal Error whether the
+      workdir matches or not -- the harness check precedes staleness
+      classification (Section 12.1).
+- [ ] **Reconstruction.** A backend constructed in a new process with a
+      restored bindings map and an empty live list continues a bound
+      session on the next revisit turn -- same native session ID.
+- [ ] **Outcome conversion.** A schema-conforming adapter object becomes a
+      native Outcome (`next` present exactly when the choice schema
+      required it); a nonconforming result surfaces as a terminal Error;
+      every categorized adapter Error -- `retryable`, `terminal`,
+      `interrupted` -- passes through to the handler unchanged.
+- [ ] **Steering cardinality.** Zero live turns reject as not-active; one
+      live turn hands the parts to that session's adapter; more than one
+      rejects as ambiguous. (Rejection of steering during a parallel
+      top-level step is the engine's job and happens before the backend
+      is reached, Section 3.9.)
+- [ ] **Interrupt.** `interrupt_all()` signals every currently live
+      adapter turn, and only live ones.
+- [ ] **Run log.** Each turn writes exactly one zero-padded,
+      sequence-prefixed segment stamped with timestamps and the node id;
+      `events/index.jsonl` gains its line when the segment is created;
+      the segment counter resumes above the highest existing sequence
+      after reconstruction; `current.jsonl` swaps atomically, and pins to
+      the index while more than one turn is live (Section 12.4).
+- [ ] **Honest logging failure.** A failed segment or index write is never
+      reported as a successfully recorded turn; the backend documents its
+      smallest honest failure behavior.
+
+**Integration proof:** one graph exercising both harnesses, session reuse
+across a loop, compaction, steering, interruption, checkpoint
+reconstruction in a fresh process, and a parallel step whose branch turns
+carry worktree workdirs -- then inspect the native session IDs, the
+bindings map, and the run directory against every claim above.
+
 ## 12. Harness-Backed Backends
 
 The recommended `CodergenBackend` implementation wraps third party coding agent
@@ -2148,21 +2436,35 @@ ThreadBinding:
 
 FUNCTION run(turn: CodergenTurn) -> OneOf<Outcome, Error>:
     fidelity = turn.fidelity
+    IF fidelity NOT IN {"full", "compacted", "none"}
+            AND fidelity is not a mode this implementation defines:
+        -- rejected outright (Section 5.4): an unrecognized mode must not
+        -- fall through to accidental fresh-session semantics
+        RETURN Error("terminal", "unsupported fidelity mode: " + fidelity)
     key      = turn.thread_key
     IF fidelity == "none":
         key = none_key(turn.node_id)  -- internal namespace; never clobbers a reusable thread
-    revisit  = (key IN threads) AND (fidelity IN {"full", "compacted"})
     h = select_harness(turn.provider, turn.model)
+    revisit  = FALSE
+    IF (key IN threads) AND (fidelity IN {"full", "compacted"}):
+        IF threads[key].harness != h:
+            -- checked BEFORE workdir staleness: a harness change is
+            -- terminal on every path (Section 11.14), never masked by a
+            -- simultaneous workdir change
+            RETURN Error("terminal", "logical thread cannot change harness")
+        revisit = (threads[key].workdir == turn.workdir)
+        -- a binding whose workdir differs from the turn's is STALE, not an
+        -- error: its conversation describes a different workspace state (a
+        -- previous fan-out's worktree). It is not resumed; the create
+        -- branch below replaces it with a fresh session in the turn's
+        -- workdir (see Construction)
     IF not revisit:
-        -- first visit: bind at session open (Section 5.3)
+        -- first visit, none-fidelity visit, or stale-workdir replacement:
+        -- bind at session open (Section 5.3)
         s, err = adapters[h].create_session(turn.model, turn.workdir)
         IF err: RETURN err
         threads[key] = ThreadBinding(h, s, turn.workdir)
     ELSE:
-        IF threads[key].harness != h:
-            RETURN Error("terminal", "logical thread cannot change harness")
-        IF threads[key].workdir != turn.workdir:
-            RETURN Error("terminal", "logical thread cannot change workdir")
         IF fidelity == "compacted":
             err = adapters[h].compact(threads[key].session_id, turn.workdir)
             -- on failure the turn is not sent (Section 5.4)
@@ -2184,6 +2486,10 @@ FUNCTION run(turn: CodergenTurn) -> OneOf<Outcome, Error>:
     RETURN outcome
 
 FUNCTION steer(parts) -> status:                  -- Section 3.9
+    -- defense-in-depth only: the engine has already rejected steering
+    -- while a parallel step is the active top-level execution (3.9);
+    -- this check cannot detect a fan-out whose branch turns happen not
+    -- to overlap
     IF live is empty:   RETURN not_active
     IF size(live) > 1:  RETURN ambiguous_target
     t = threads[live[0]]
@@ -2217,13 +2523,20 @@ the run's `logs_root`. It carries no workspace path of its own: every turn
 arrives with its `workdir` (the run workspace, or a branch worktree during
 a fan-out, Section 4.1), and the backend passes that to the adapter. A
 session is workdir-bound at `create_session`, and the backend records the
-workdir in the binding; a revisit turn whose `workdir` differs from its
-session's is a terminal Error, exactly like a harness change -- sessions
-move between working directories no better than between harnesses. (In
-practice this bites only a thread explicitly shared across a branch
-boundary; per-node default threads follow their node and never trip it.)
-The backend allocates run-log segment sequence numbers (Section 12.4)
-atomically across concurrent branch turns.
+workdir in the binding. A turn arriving with a different workdir than its
+key's binding treats that binding as stale and opens a fresh session in the
+turn's workdir, replacing it -- sessions never move between working
+directories, and the stale session's context would describe a workspace
+state that no longer exists. This is exactly the right semantic for the one
+case that produces it legitimately: a re-executed parallel node creates
+fresh worktrees, so its branch nodes' default threads rebind fresh per
+fan-out. A thread *explicitly* shared across a branch boundary would also
+trip it -- silently losing the author's intended continuity -- so that
+shape is a lint ERROR instead (`thread_branch_boundary`, Section 7.2). On
+resume (and at construction generally) the backend recovers its run-log
+segment counter from the highest sequence already present in
+`{logs_root}/events/` before allocating; allocation is atomic across
+concurrent branch turns (Section 12.4).
 
 ### 12.2 The HarnessAdapter Interface
 
@@ -2352,10 +2665,14 @@ Each backend turn (codergen and fan-in executions) appends its events to a
 segment file, and the run maintains an index and a live pointer:
 
 - `{logs_root}/events/{seq}-{node_id}.jsonl` -- one segment per backend
-  turn, sequence-prefixed so a directory listing reads in execution
-  order. One event per line, stamped by the backend with a timestamp and
-  the originating node id. A multi-turn node execution (a retry, a branch
-  that revisits a node) produces one segment per turn.
+  turn, sequence-prefixed (zero-padded to six digits) so a directory
+  listing sorts in execution order. One event per line, stamped by the
+  backend with a timestamp and the originating node id. A multi-turn node
+  execution (a retry, a branch that revisits a node) produces one segment
+  per turn. The backend's segment counter is its own -- recovered from
+  the `events/` directory at construction (Section 12.1) -- and is
+  independent of the engine's stage-dir counter (Section 3.5): equal
+  numbers across `events/` and `stages/` imply no correspondence.
 - `{logs_root}/events/index.jsonl` -- the append-only **segment index**,
   a discovery manifest, not a turn segment: the backend appends one line
   `{seq, node_id, path, ts}` at the moment it creates any segment,
@@ -2363,17 +2680,25 @@ segment file, and the run maintains an index and a live pointer:
   is born -- including concurrent branch segments during a fan-out --
   without predicting future paths.
 - `{logs_root}/current.jsonl` -- a symlink, atomically swapped by the
-  backend. While exactly one turn is live it points at that turn's
-  segment; while more than one turn is live (only possible during a
-  fan-out) it points at `events/index.jsonl`, and a watcher follows the
-  index to the branch segments. A swap is ordinary log rotation:
+  backend. A turn that starts while no other turn is live points it at
+  that turn's segment. The moment two turns are ever live together (only
+  possible during a fan-out), the backend points it at
+  `events/index.jsonl` and leaves it there until the live count returns
+  to zero -- no per-turn flapping while branches interleave -- after
+  which the next lone turn swaps it back to a segment. (The live count
+  can legitimately touch zero mid-fan-out while every branch sits at a
+  tool node or another node with no backend turn, ending stickiness
+  early; that residual retargeting
+  is accepted.) The index is the surface a watcher can always rely on;
+  `current.jsonl` is a best-effort convenience pointer to wherever live
+  activity is. A swap is ordinary log rotation:
   `tail -F` (follow the name, reopen on inode change) is the tailing
   contract; the control server's SSE streams (Section 3.9) are the
   no-filesystem alternative.
 
 The backend writes the segments, appends the index, and swaps
 `current.jsonl`; adapters only emit events through `on_event`. Nodes that
-run no backend turn (start, tool nodes, human gates) produce no segment;
+run no backend turn (start, tool nodes) produce no segment;
 `current.jsonl` continues to point at the most recently started segment,
 and `timeline.jsonl` (Section 10) narrates those steps. The parallel node
 itself owns no run-log file -- its `branches.json` (Section 4.8) carries
@@ -2383,58 +2708,63 @@ checkpoint and the engine event stream (Section 10) carry it.
 
 ---
 
-## Appendix A: Complete Attribute Reference
+## Appendix A: Complete Field Reference
 
-### Graph Attributes
+### Top-Level Fields
 
-| Key                     | Type     | Default | Description |
-|-------------------------|----------|---------|-------------|
-| `goal`                  | String   | `""`    | Pipeline-level goal description |
-| `label`                 | String   | `""`    | Display name for the graph |
-| `default_max_retries`   | Integer  | `0`     | Default retry budget for retryable turn errors on nodes that omit `max_retries` |
-| `default_fidelity`      | String   | `""`    | Default context fidelity mode when explicitly set. Empty string means unset; runtime fallback is `compacted`. |
+| Field                   | Type       | Default  | Description |
+|-------------------------|------------|----------|-------------|
+| `name`                  | String     | `""`     | Display name for the pipeline |
+| `goal`                  | String     | `""`     | Pipeline-level goal description; `$goal` in prompts |
+| `defaults`              | Object     | `{}`     | File-level node defaults (Section 2.7) |
+| `nodes`                 | Node array | required | The graph; each node carries its own edges |
 
-### Node Attributes
+### Node Fields (common to every type)
 
-| Key                     | Type     | Default       | Description |
-|-------------------------|----------|---------------|-------------|
-| `label`                 | String   | node ID       | Display name |
-| `shape`                 | String   | `"box"`       | Graphviz shape (determines handler type) |
-| `type`                  | String   | `""`          | Explicit handler type override |
-| `prompt`                | String   | `""`          | LLM prompt (supports `$goal` expansion) |
-| `max_retries`           | Integer  | inherited     | Additional attempts for retryable turn errors (Section 3.5) |
-| `max_visits`            | Integer  | unset         | Visit budget; exhausted nodes are not offered (Section 3.4) |
-| `fidelity`              | String   | inherited     | Context fidelity mode |
-| `thread_id`             | String   | node ID       | Session reuse key; unset = the node's own thread (Section 5.4) |
-| `timeout`               | Duration | unset         | Max execution time |
-| `llm_model`             | String   | inherited     | LLM model (Section 8) |
-| `llm_provider`          | String   | auto-detected | LLM provider override |
-| `reasoning_effort`      | String   | inherited     | Reasoning depth: low/medium/high (Section 8) |
-| `max_parallel`          | Integer  | `4`           | Parallel nodes: max concurrent branches (Section 4.8) |
-| `tool_command`          | String   | `""`          | Tool nodes: shell command (Section 4.7) |
-| `on_fail`               | String   | `""`          | Tool nodes: successor on nonzero exit (Section 4.7) |
-| `human.timeout`         | Duration | unset         | Human gates: max wait before default (Section 4.6) |
-| `human.default_choice`  | String   | `""`          | Human gates: target selected on timeout (Section 4.6) |
+| Field                   | Type       | Default       | Description |
+|-------------------------|------------|---------------|-------------|
+| `id`                    | String     | required      | Unique node identity |
+| `type`                  | String     | required      | Handler type discriminator (Section 2.5) |
+| `label`                 | String     | node ID       | Display name |
+| `edges`                 | Edge array | `[]`          | This node's outgoing edges |
+| `max_visits`            | Integer    | unset         | Visit budget; exhausted nodes are not offered (Section 3.4) |
 
-### Edge Attributes
+### Node Fields (per type)
 
-| Key            | Type     | Default | Description |
+| Field                   | Type     | Default       | On types | Description |
+|-------------------------|----------|---------------|----------|-------------|
+| `prompt`                | String   | `""`          | codergen, parallel.fan_in | LLM prompt (supports `$goal` expansion) |
+| `max_retries`           | Integer  | inherited     | codergen, parallel.fan_in, custom | Additional attempts for retryable turn errors (Section 3.5) |
+| `fidelity`              | String   | inherited     | codergen, parallel.fan_in | Context fidelity mode (Section 5.4) |
+| `thread_id`             | String   | node ID       | codergen, parallel.fan_in | Session reuse key; unset = the node's own thread (Section 5.4) |
+| `timeout`               | Duration | unset         | codergen, parallel.fan_in, tool | Max execution time (Sections 4.7, 12.2) |
+| `llm_model`             | String   | inherited     | codergen, parallel.fan_in | LLM model (Section 8) |
+| `llm_provider`          | String   | auto-detected | codergen, parallel.fan_in | LLM provider override |
+| `reasoning_effort`      | String   | inherited     | codergen, parallel.fan_in | Reasoning depth: low/medium/high (Section 8) |
+| `tool_command`          | String   | required      | tool     | Shell command (Section 4.7) |
+| `on_fail`               | String   | `""`          | tool     | Successor on nonzero exit (Section 4.7) |
+| `max_parallel`          | Integer  | `4`           | parallel | Max concurrent branches (Section 4.8) |
+| `custom`                | Object   | `{}`          | custom types | Opaque handler configuration (Sections 2.5, 4.10) |
+
+### Edge Fields
+
+| Field          | Type     | Default | Description |
 |----------------|----------|---------|-------------|
-| `label`        | String   | `""`    | Display caption; describes the route to choosers. Routing never reads it. |
+| `to`           | String   | required | Target node ID |
+| `condition`    | String   | unset   | Routing condition presented to the chooser; required at choice-schema branch points (Section 7.2). The engine never reads it. |
 
 ---
 
-## Appendix B: Shape-to-Handler-Type Mapping
+## Appendix B: Node Types
 
-| Shape           | Handler Type        | Default Behavior |
-|-----------------|---------------------|------------------|
-| `Mdiamond`      | `start`             | No-op entry point |
-| `Msquare`       | `exit`              | Reaching it completes the run |
-| `box`           | `codergen`          | LLM task (default for all nodes) |
-| `hexagon`       | `wait.human`        | Blocks for human selection |
-| `component`     | `parallel`          | Concurrent branch execution |
-| `tripleoctagon` | `parallel.fan_in`   | Consolidate branch results (codergen variant) |
-| `parallelogram` | `tool`              | Shell command; routes on exit code |
+| Type              | Handler Behavior |
+|-------------------|------------------|
+| `start`           | No-op entry point; exactly one per pipeline |
+| `exit`            | Reaching it completes the run; exactly one per pipeline |
+| `codergen`        | LLM task |
+| `parallel`        | Concurrent branch execution |
+| `parallel.fan_in` | Consolidate branch results (codergen variant) |
+| `tool`            | Shell command; routes on exit code |
 
 ---
 

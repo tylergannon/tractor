@@ -1,0 +1,489 @@
+{
+  "$defs": {
+    "nonNullJSON": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "items": {
+            "$ref": "#/$defs/nonNullJSON"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/nonNullJSON"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "description": "Graph is a complete pipeline definition.",
+  "properties": {
+    "defaults": {
+      "additionalProperties": false,
+      "description": "Defaults contains file-level defaults for node fields.",
+      "properties": {
+        "fidelity": {
+          "type": "string"
+        },
+        "llm_model": {
+          "type": "string"
+        },
+        "llm_provider": {
+          "type": "string"
+        },
+        "max_retries": {
+          "type": "integer"
+        },
+        "reasoning_effort": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "type": "string"
+        },
+        "timeout": {
+          "description": "Duration is an integer followed by ms, s, m, h, or d.",
+          "pattern": "^[0-9]+(ms|s|m|h|d)$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "goal": {
+      "description": "Goal is the pipeline objective exposed to prompt expansion.",
+      "type": "string"
+    },
+    "name": {
+      "description": "Name is the pipeline's display name.",
+      "type": "string"
+    },
+    "nodes": {
+      "description": "Nodes is the graph. Each node carries its outgoing edges.",
+      "items": {
+        "anyOf": [
+          {
+            "additionalProperties": false,
+            "description": "StartNode is the pipeline entry point.",
+            "properties": {
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "id": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "max_visits": {
+                "type": "integer"
+              },
+              "type": {
+                "const": "start",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ExitNode is the pipeline terminal node.",
+            "properties": {
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "id": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "max_visits": {
+                "type": "integer"
+              },
+              "type": {
+                "const": "exit",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "CodergenNode runs an LLM task.",
+            "properties": {
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "fidelity": {
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "llm_model": {
+                "type": "string"
+              },
+              "llm_provider": {
+                "type": "string"
+              },
+              "max_retries": {
+                "type": "integer"
+              },
+              "max_visits": {
+                "type": "integer"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "reasoning_effort": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              "thread_id": {
+                "type": "string"
+              },
+              "timeout": {
+                "description": "Duration is an integer followed by ms, s, m, h, or d.",
+                "pattern": "^[0-9]+(ms|s|m|h|d)$",
+                "type": "string"
+              },
+              "type": {
+                "const": "codergen",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ParallelNode concurrently walks each outgoing branch.",
+            "properties": {
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "id": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "max_parallel": {
+                "type": "integer"
+              },
+              "max_visits": {
+                "type": "integer"
+              },
+              "type": {
+                "const": "parallel",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "FanInNode evaluates parallel branch evidence with an LLM turn.",
+            "properties": {
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "fidelity": {
+                "type": "string"
+              },
+              "id": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "llm_model": {
+                "type": "string"
+              },
+              "llm_provider": {
+                "type": "string"
+              },
+              "max_retries": {
+                "type": "integer"
+              },
+              "max_visits": {
+                "type": "integer"
+              },
+              "prompt": {
+                "type": "string"
+              },
+              "reasoning_effort": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              "thread_id": {
+                "type": "string"
+              },
+              "timeout": {
+                "description": "Duration is an integer followed by ms, s, m, h, or d.",
+                "pattern": "^[0-9]+(ms|s|m|h|d)$",
+                "type": "string"
+              },
+              "type": {
+                "const": "parallel.fan_in",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "ToolNode executes one shell command.",
+            "properties": {
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "id": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "max_visits": {
+                "type": "integer"
+              },
+              "on_fail": {
+                "type": "string"
+              },
+              "timeout": {
+                "description": "Duration is an integer followed by ms, s, m, h, or d.",
+                "pattern": "^[0-9]+(ms|s|m|h|d)$",
+                "type": "string"
+              },
+              "tool_command": {
+                "type": "string"
+              },
+              "type": {
+                "const": "tool",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id",
+              "tool_command"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "CustomNode is the generic shape for a registered custom handler type.",
+            "properties": {
+              "custom": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/nonNullJSON"
+                },
+                "description": "OpaqueObject carries custom-handler configuration without interpretation. Its generated placeholder schema is opened by the deterministic schema normalization step because go-gen-jsonschema intentionally has no map type.",
+                "type": "object"
+              },
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "id": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "max_retries": {
+                "type": "integer"
+              },
+              "max_visits": {
+                "type": "integer"
+              },
+              "type": {
+                "not": {
+                  "enum": [
+                    "start",
+                    "exit",
+                    "codergen",
+                    "parallel",
+                    "parallel.fan_in",
+                    "tool"
+                  ]
+                },
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "id"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "nodes"
+  ],
+  "type": "object"
+}
