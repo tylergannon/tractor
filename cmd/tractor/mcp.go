@@ -28,7 +28,7 @@ import (
 	"github.com/tylergannon/tractor/lint"
 )
 
-const tractorMCPVersion = "0.2.2"
+const tractorMCPVersion = "0.2.3"
 
 const (
 	gracefulRunStopTimeout = 500 * time.Millisecond

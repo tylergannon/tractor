@@ -123,3 +123,35 @@ func TestRetireDetachedMCPServersDoesNotTouchUnregisteredRuns(t *testing.T) {
 		t.Fatal("detached run was not reaped after test cleanup")
 	}
 }
+
+func TestRetireLegacyMCPProcessesKillsOnlyIdleUnregisteredServers(t *testing.T) {
+	processes := []processSnapshot{
+		{PID: 10, PPID: 1, Command: "/old/cache/tractor-abc mcp"},
+		{PID: 11, PPID: 1, Command: "tractor mcp"},
+		{PID: 12, PPID: 11, Command: "tractor run pipeline.json"},
+		{PID: 13, PPID: 1, Command: "/usr/local/bin/tractor mcp"},
+		{PID: 14, PPID: 1, Command: "tractor run pipeline.json"},
+	}
+	var killed []int
+	retired, preserved, err := retireLegacyMCPProcesses(processes, map[int]bool{13: true}, func(pid int) error {
+		killed = append(killed, pid)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retired != 1 || preserved != 1 || !slices.Equal(killed, []int{10}) {
+		t.Fatalf("retired=%d preserved=%d killed=%v", retired, preserved, killed)
+	}
+}
+
+func TestParseProcessSnapshotPreservesCommand(t *testing.T) {
+	processes := parseProcessSnapshot("  42    1 tractor mcp\n  43   42 /bin/sh -c sleep 30\n")
+	want := []processSnapshot{
+		{PID: 42, PPID: 1, Command: "tractor mcp"},
+		{PID: 43, PPID: 42, Command: "/bin/sh -c sleep 30"},
+	}
+	if !slices.Equal(processes, want) {
+		t.Fatalf("processes = %#v, want %#v", processes, want)
+	}
+}
