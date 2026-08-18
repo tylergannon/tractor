@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/tylergannon/tractor/harness"
+	"github.com/tylergannon/tractor/harness/agy"
 	"github.com/tylergannon/tractor/harness/claude"
 	"github.com/tylergannon/tractor/harness/codex"
 	"github.com/tylergannon/tractor/internal/runlog"
@@ -121,7 +122,7 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("harness-conformance", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var values options
-	flags.StringVar(&values.adapter, "adapter", "", "native adapter: codex or claude")
+	flags.StringVar(&values.adapter, "adapter", "", "native adapter: codex, claude, or agy")
 	flags.StringVar(&values.model, "model", "", "configured real model")
 	flags.StringVar(&values.evidence, "evidence", "", "JSON evidence output path")
 	if err := flags.Parse(args); err != nil {
@@ -203,6 +204,10 @@ func selectAdapter(values options) (*adapterFactory, string, string, error) {
 	var args []string
 	var construct func() harness.HarnessAdapter
 	switch values.adapter {
+	case "agy":
+		command = "agy"
+		args = []string{"--version"}
+		construct = func() harness.HarnessAdapter { return agy.New() }
 	case "codex":
 		command = "codex"
 		args = []string{"--version"}
@@ -666,7 +671,10 @@ func scenarioCompaction(factory *adapterFactory, workdir string) error {
 
 func scenarioBackendSupervisor(factory *adapterFactory, workdir string) error {
 	provider := "openai"
-	if factory.name == "claude" {
+	switch factory.name {
+	case "agy":
+		provider = "gemini"
+	case "claude":
 		provider = "anthropic"
 	}
 	logsRoot := filepath.Join(workdir, "logs")

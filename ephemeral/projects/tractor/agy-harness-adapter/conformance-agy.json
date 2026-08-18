@@ -1,0 +1,59 @@
+{
+  "adapter": "agy",
+  "native_harness": "agy",
+  "native_version": "1.1.14",
+  "model": "gemini-3.7-flash-low",
+  "started_at": "2026-08-18T19:51:07.029039Z",
+  "finished_at": "2026-08-18T19:54:03.572554Z",
+  "passed": true,
+  "scenarios": [
+    {
+      "name": "real_workspace_turn",
+      "passed": true,
+      "duration": 11349000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/01-real_workspace_turn"
+    },
+    {
+      "name": "continuation_and_reconstruction",
+      "passed": true,
+      "duration": 13342000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/02-continuation_and_reconstruction"
+    },
+    {
+      "name": "isolation_and_serialization",
+      "passed": true,
+      "duration": 33196000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/03-isolation_and_serialization"
+    },
+    {
+      "name": "invalid_inputs_and_public_errors",
+      "passed": true,
+      "duration": 5552000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/04-invalid_inputs_and_public_errors"
+    },
+    {
+      "name": "steering",
+      "passed": true,
+      "duration": 23904000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/05-steering"
+    },
+    {
+      "name": "interruption_and_timeout",
+      "passed": true,
+      "duration": 29939000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/06-interruption_and_timeout"
+    },
+    {
+      "name": "compaction",
+      "passed": true,
+      "duration": 47204000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/07-compaction"
+    },
+    {
+      "name": "backend_supervisor",
+      "passed": true,
+      "duration": 12080000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-3838637159/08-backend_supervisor"
+    }
+  ]
+}

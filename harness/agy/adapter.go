@@ -44,16 +44,18 @@ type Adapter struct {
 }
 
 type sessionState struct {
-	opMu    sync.Mutex
-	mu      sync.Mutex
-	workdir string
-	active  *activeTurn
+	opMu         sync.Mutex
+	mu           sync.Mutex
+	workdir      string
+	active       *activeTurn
+	pendingSteer [][]harness.ContentPart
 }
 
 type activeTurn struct {
 	command     *exec.Cmd
 	done        chan struct{}
 	interrupted atomic.Bool
+	steered     atomic.Bool
 }
 
 type runRequest struct {
@@ -175,7 +177,7 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	if request.timeout <= 0 && input.Timeout > 0 {
 		return nil, interrupted("turn timed out and was interrupted")
 	}
-	result, active, runErr := a.runForState(state, request)
+	result, active, runErr := a.runWithSteering(state, request, deadline, input.Timeout)
 	if runErr != nil {
 		return nil, runErr
 	}
@@ -195,7 +197,7 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 		active.interrupted.Store(true)
 		return nil, interrupted("turn timed out and was interrupted")
 	}
-	result, _, runErr = a.runForState(state, request)
+	result, _, runErr = a.runWithSteering(state, request, deadline, input.Timeout)
 	if runErr != nil {
 		return nil, runErr
 	}
@@ -209,8 +211,28 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	return validated, nil
 }
 
-// Steer is an explicit no-op: agy print mode has no live injection channel.
-func (a *Adapter) Steer(_ string, _ []harness.ContentPart) {}
+// Steer interrupts the active print process and resumes its native
+// conversation with the steering message inside the same logical RunTurn.
+func (a *Adapter) Steer(sessionID string, parts []harness.ContentPart) {
+	if strings.TrimSpace(sessionID) == "" || harness.ValidateContentParts(parts) != nil {
+		return
+	}
+	state := a.lookup(sessionID)
+	if state == nil {
+		return
+	}
+	copied := append([]harness.ContentPart(nil), parts...)
+	state.mu.Lock()
+	active := state.active
+	if active != nil {
+		state.pendingSteer = append(state.pendingSteer, copied)
+		active.steered.Store(true)
+	}
+	state.mu.Unlock()
+	if active != nil {
+		interruptProcess(active)
+	}
+}
 
 // Interrupt signals the active native process and returns immediately.
 func (a *Adapter) Interrupt(sessionID string) {
@@ -226,8 +248,8 @@ func (a *Adapter) Interrupt(sessionID string) {
 	}
 }
 
-// Compact validates a reconstructed conversation once, then relies on agy's
-// service-managed context. Known idle sessions are a guarded no-op.
+// Compact asks agy to compact the native conversation with its /compact
+// command. The operation is rejected while another turn is active.
 func (a *Adapter) Compact(sessionID, workdir string) *harness.Error {
 	if err := harness.ValidateSessionInput(sessionID, workdir); err != nil {
 		return err
@@ -236,7 +258,7 @@ func (a *Adapter) Compact(sessionID, workdir string) *harness.Error {
 	if err != nil {
 		return terminal(fmt.Sprintf("resolve working directory: %v", err))
 	}
-	state, existed, stateErr := a.stateWithExistence(sessionID)
+	state, _, stateErr := a.stateWithExistence(sessionID)
 	if stateErr != nil {
 		return stateErr
 	}
@@ -247,11 +269,8 @@ func (a *Adapter) Compact(sessionID, workdir string) *harness.Error {
 	if err := bindWorkdir(state, absolute); err != nil {
 		return err
 	}
-	if existed {
-		return nil
-	}
-	_, _, runErr := a.runOnce(runRequest{
-		prompt:          "Reply with the single word OK. Do not use any tools.",
+	_, _, runErr := a.runForState(state, runRequest{
+		prompt:          "/compact",
 		workdir:         absolute,
 		sessionID:       sessionID,
 		timeout:         createTimeout,
@@ -300,6 +319,41 @@ func (a *Adapter) runForState(state *sessionState, request runRequest) (nativeRe
 	return result, active, err
 }
 
+func (a *Adapter) runWithSteering(
+	state *sessionState,
+	request runRequest,
+	deadline time.Time,
+	originalTimeout time.Duration,
+) (nativeResult, *activeTurn, *harness.Error) {
+	for {
+		result, active, err := a.runForState(state, request)
+		parts := takeSteer(state)
+		if len(parts) == 0 {
+			return result, active, err
+		}
+		if err != nil && (active == nil || !active.steered.Load() || err.Category != harness.ErrorInterrupted) {
+			return nativeResult{}, active, err
+		}
+		request.projector.user(parts)
+		request.prompt = joinParts(parts)
+		request.timeout = remaining(deadline, originalTimeout)
+		if request.timeout <= 0 && originalTimeout > 0 {
+			return nativeResult{}, active, interrupted("turn timed out and was interrupted")
+		}
+	}
+}
+
+func takeSteer(state *sessionState) []harness.ContentPart {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.pendingSteer) == 0 {
+		return nil
+	}
+	parts := state.pendingSteer[0]
+	state.pendingSteer = state.pendingSteer[1:]
+	return parts
+}
+
 func (a *Adapter) runOnce(request runRequest) (nativeResult, *activeTurn, *harness.Error) {
 	return a.runOnceWithActive(request, nil)
 }
@@ -324,7 +378,7 @@ func (a *Adapter) runOnceWithActive(request runRequest, started func(*activeTurn
 	if request.model != "" {
 		args = append(args, "--model", request.model)
 	}
-	if request.effort != "" {
+	if request.effort != "" && !modelIncludesEffort(request.model) {
 		args = append(args, "--effort", request.effort)
 	}
 	if request.outputSchema != "" {
@@ -403,7 +457,7 @@ func (a *Adapter) runOnceWithActive(request runRequest, started func(*activeTurn
 					structured:     envelope.Result.StructuredOutput,
 					echoedSchema:   envelope.Result.JsonSchema,
 				}
-				if request.sessionID != "" && parsed.conversationID != request.sessionID {
+				if parsed.status == "SUCCESS" && request.sessionID != "" && parsed.conversationID != request.sessionID {
 					interruptProcess(active)
 					protocolErr = terminal("agy result returned a different conversation ID")
 				}
@@ -604,6 +658,15 @@ func joinParts(parts []harness.ContentPart) string {
 		texts = append(texts, part.Text)
 	}
 	return strings.Join(texts, "\n\n")
+}
+
+func modelIncludesEffort(model string) bool {
+	for _, suffix := range []string{"-low", "-medium", "-high"} {
+		if strings.HasSuffix(model, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func categorize(err error, wasInterrupted bool) *harness.Error {
