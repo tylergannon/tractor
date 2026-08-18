@@ -1,0 +1,36 @@
+{
+  "name": "supervisor-hierarchy-proof",
+  "goal": "prove multi-level supervision",
+  "start": "work",
+  "nodes": [
+    {
+      "id": "work",
+      "type": "tool",
+      "tool_command": "sleep 30; printf 'DONE\\n' > hierarchy-done.txt",
+      "on_success": "success",
+      "timeout": "45s"
+    },
+    {
+      "id": "lead",
+      "type": "supervisor",
+      "prompt": "Return verdict ok with message lower-ok.",
+      "supervises": ["work"],
+      "interval": "2s",
+      "timeout": "60s",
+      "llm_provider": "anthropic",
+      "llm_model": "fable",
+      "reasoning_effort": "low"
+    },
+    {
+      "id": "director",
+      "type": "supervisor",
+      "prompt": "Whenever lead is live, return verdict steer, target lead, and message exactly WATCH_CLOSELY.",
+      "supervises": ["lead"],
+      "interval": "1s",
+      "timeout": "60s",
+      "llm_provider": "openai",
+      "llm_model": "gpt-5.6-sol",
+      "reasoning_effort": "low"
+    }
+  ]
+}

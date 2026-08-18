@@ -184,8 +184,10 @@ func runPipeline(command *cobra.Command, pipeline graph.Graph, workdir, logsRoot
 	registry.Register("codergen", engine.NewCodergenHandler(codergenConfig))
 	registry.Register("parallel.fan_in", engine.NewFanInHandler(codergenConfig))
 	runnerConfig := engine.RunnerConfig{
-		LogsRoot: logsRoot,
-		Workdir:  workdir,
+		LogsRoot:               logsRoot,
+		Workdir:                workdir,
+		DefaultModel:           defaultModel,
+		DefaultReasoningEffort: defaultReasoningEffort,
 		Validate: func(candidate graph.Graph) error {
 			_, err := validator.ValidateOrError(candidate)
 			return err

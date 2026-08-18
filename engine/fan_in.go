@@ -49,9 +49,9 @@ func (h *FanInHandler) Execute(node graph.Node, offered []graph.Edge, scope Exec
 	if err != nil {
 		return harness.Outcome{}, terminalError(fmt.Sprintf("read branch evidence for %s: %v", owner.ID, err))
 	}
-	branchRoots := make(map[string]struct{}, len(owner.Edges))
-	for _, edge := range owner.Edges {
-		branchRoots[edge.To] = struct{}{}
+	branchRoots := make(map[string]struct{}, len(owner.Branches))
+	for _, branch := range owner.Branches {
+		branchRoots[branch] = struct{}{}
 	}
 	for _, result := range results {
 		if _, ok := branchRoots[result.BranchID]; !ok {
@@ -66,7 +66,7 @@ func (h *FanInHandler) Execute(node graph.Node, offered []graph.Edge, scope Exec
 	if prompt == "" {
 		prompt = "Evaluate the results of the parallel branches."
 	}
-	prompt = strings.ReplaceAll(prompt, "$goal", scope.Goal)
+	prompt = expandPrompt(prompt, scope.Goal)
 	prompt += "\n\n" + renderBranchResults(results)
 	return h.codergen.executeTurn(join, &join.LLMNodeFields, offered, scope, pipeline, prompt)
 }

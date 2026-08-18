@@ -31,7 +31,7 @@ func TestDefinitionProofPipelineWithTenWorkNodesCompletes(t *testing.T) {
 
 	registry := NewRegistry()
 	var executed []string
-	registry.Register("proof", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		executed = append(executed, node.Base().ID)
 		return harness.Outcome{Notes: "completed " + node.Base().ID}, nil
 	}))
@@ -44,10 +44,10 @@ func TestDefinitionProofPipelineWithTenWorkNodesCompletes(t *testing.T) {
 		t.Fatalf("executed nodes = %v", executed)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if len(checkpoint.CompletedNodes) != workNodes+1 || checkpoint.CurrentNode != "done" || checkpoint.NextNode != "" {
+	if len(checkpoint.CompletedNodes) != workNodes || checkpoint.CurrentNode != "work-10" || checkpoint.NextNode != graph.Success {
 		t.Fatalf("final checkpoint = %#v", checkpoint)
 	}
-	for _, nodeID := range append([]string{"start"}, executed...) {
+	for _, nodeID := range executed {
 		if checkpoint.NodeVisits[nodeID] != 1 || checkpoint.NodeAttempts[nodeID] != 1 {
 			t.Fatalf("counters for %s: visits=%d attempts=%d", nodeID, checkpoint.NodeVisits[nodeID], checkpoint.NodeAttempts[nodeID])
 		}
@@ -88,14 +88,15 @@ func TestDefinitionProofRunnerCodergenChoiceSchemaRoutesThroughHarnessBackend(t 
 	pipeline := testGraph(
 		startNode("start", "choose"),
 		&graph.CodergenNode{
-			NodeBase: graph.NodeBase{ID: "choose", Edges: []graph.Edge{
+			NodeBase: graph.NodeBase{ID: "choose"},
+			Edges: []graph.Edge{
 				{To: "left", Condition: "choose the left result"},
 				{To: "right", Condition: "choose the right result"},
-			}},
+			},
 			LLMNodeFields: graph.LLMNodeFields{Prompt: optional("Select the better result")},
 		},
-		exitNode("left"),
-		exitNode("right"),
+		&graph.ToolNode{NodeBase: graph.NodeBase{ID: "left"}, ToolCommand: "true", OnSuccess: graph.Success},
+		&graph.ToolNode{NodeBase: graph.NodeBase{ID: "right"}, ToolCommand: "true", OnSuccess: graph.Success},
 	)
 	registry := NewRegistry()
 	registry.Register("codergen", NewCodergenHandler(CodergenConfig{
@@ -110,7 +111,7 @@ func TestDefinitionProofRunnerCodergenChoiceSchemaRoutesThroughHarnessBackend(t 
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.CurrentNode != "right" || !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start", "choose"}) {
+	if checkpoint.CurrentNode != "right" || !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"choose", "right"}) {
 		t.Fatalf("choice checkpoint = %#v", checkpoint)
 	}
 	inputs := adapter.inputsSnapshot()
@@ -131,7 +132,7 @@ func TestDefinitionProofSideEffectReplaysAcrossResume(t *testing.T) {
 
 	firstScope := ExecutionScope{}
 	firstRegistry := NewRegistry()
-	firstRegistry.Register("send", HandlerFunc(func(_ graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	firstRegistry.Register("codergen", HandlerFunc(func(_ graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		firstScope = scope
 		if err := appendProofLine(sends, map[string]string{"delivery": "sent", "workdir": scope.Workdir}); err != nil {
 			return harness.Outcome{}, terminalError(err.Error())
@@ -145,7 +146,7 @@ func TestDefinitionProofSideEffectReplaysAcrossResume(t *testing.T) {
 
 	secondScope := ExecutionScope{}
 	secondRegistry := NewRegistry()
-	secondRegistry.Register("send", HandlerFunc(func(_ graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	secondRegistry.Register("codergen", HandlerFunc(func(_ graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		secondScope = scope
 		if err := appendProofLine(sends, map[string]string{"delivery": "sent", "workdir": scope.Workdir}); err != nil {
 			return harness.Outcome{}, terminalError(err.Error())
@@ -185,21 +186,23 @@ func TestDefinitionProofParallelReplayUsesFreshWorktreeAndReboundSession(t *test
 	root := shortProofTempDir(t)
 	sends := filepath.Join(t.TempDir(), "sends.jsonl")
 	parallel := &graph.ParallelNode{
-		NodeBase:    graph.NodeBase{ID: "fanout", Edges: []graph.Edge{{To: "send"}, {To: "other"}}},
+		NodeBase:    graph.NodeBase{ID: "fanout"},
+		Branches:    []string{"send", "other"},
 		MaxParallel: jsonschema.Optional[int]{Present: true, Value: 2},
 	}
 	pipeline := testGraph(
 		startNode("start", "fanout"),
 		parallel,
 		&graph.CodergenNode{
-			NodeBase: graph.NodeBase{ID: "send", Edges: []graph.Edge{{To: "join"}}},
+			NodeBase: graph.NodeBase{ID: "send"},
+			Edges:    []graph.Edge{{To: "join"}},
 			LLMNodeFields: graph.LLMNodeFields{
 				Prompt:   optional("perform the observable send"),
 				Fidelity: optional("full"),
 			},
 		},
-		customNode("other", "proof", []graph.Edge{{To: "join"}}, 0),
-		&graph.FanInNode{NodeBase: graph.NodeBase{ID: "join", Edges: []graph.Edge{{To: "done"}}}},
+		&graph.ToolNode{NodeBase: graph.NodeBase{ID: "other"}, ToolCommand: "true", OnSuccess: "join"},
+		&graph.FanInNode{NodeBase: graph.NodeBase{ID: "join"}, Edges: []graph.Edge{{To: "done"}}},
 		exitNode("done"),
 	)
 
@@ -291,9 +294,6 @@ func replayProofRegistry(backend harness.CodergenBackend) *Registry {
 		DefaultReasoningEffort: "high",
 	}
 	registry.Register("codergen", NewCodergenHandler(config))
-	registry.Register("proof", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
-		return harness.Outcome{Notes: "other branch completed"}, nil
-	}))
 	registry.Register("parallel.fan_in", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		return harness.Outcome{Notes: "fan-in completed"}, nil
 	}))
@@ -417,7 +417,7 @@ func TestDefinitionProofExecutionScopeHasNoReplayFlag(t *testing.T) {
 	for index := range typeOfScope.NumField() {
 		fields[index] = typeOfScope.Field(index).Name
 	}
-	if got := strings.Join(fields, ","); got != "Workdir,StageDir,Goal,Stop" {
+	if got := strings.Join(fields, ","); got != "Workdir,StageDir,RunLog,Goal,Stop" {
 		t.Fatalf("ExecutionScope exposes replay metadata: %s", got)
 	}
 }

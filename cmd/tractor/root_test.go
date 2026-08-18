@@ -11,15 +11,15 @@ import (
 	"github.com/tylergannon/tractor/graph"
 )
 
-const linearPipeline = `{"name":"linear","nodes":[{"id":"start","type":"start","edges":[{"to":"done"}]},{"id":"done","type":"exit"}]}`
+const linearPipeline = `{"name":"linear","start":"done","nodes":[{"id":"done","type":"tool","tool_command":"true","on_success":"success"}]}`
 
 const linearYAML = `name: linear
+start: done
 nodes:
-  - id: start
-    type: start
-    edges: [{to: done}]
   - id: done
-    type: exit
+    type: tool
+    tool_command: "true"
+    on_success: success
 `
 
 func TestRootExposesOnlyRequestedCommands(t *testing.T) {
@@ -95,7 +95,7 @@ func TestValidateDetectsYAMLFileExtensions(t *testing.T) {
 }
 
 func TestValidateReturnsLintFailure(t *testing.T) {
-	invalid := `{"nodes":[{"id":"start","type":"start","edges":[]}]}`
+	invalid := `{"start":"work","nodes":[{"id":"work","type":"codergen"}]}`
 	_, _, err := executeCommand("validate", "--json", invalid)
 	if err == nil || !strings.Contains(err.Error(), "pipeline validation failed") {
 		t.Fatalf("error = %v", err)
@@ -103,10 +103,8 @@ func TestValidateReturnsLintFailure(t *testing.T) {
 }
 
 func TestValidateSurfacesWarningsAndPreservesSuccessOutput(t *testing.T) {
-	pipeline := `{"nodes":[` +
-		`{"id":"start","type":"start","edges":[{"to":"work"}]},` +
-		`{"id":"work","type":"codergen","edges":[{"to":"done"}]},` +
-		`{"id":"done","type":"exit"}]}`
+	pipeline := `{"start":"work","nodes":[` +
+		`{"id":"work","type":"codergen","edges":[{"to":"success"}]}]}`
 	stdout, stderr, err := executeCommand("validate", "--json", pipeline)
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +144,7 @@ func TestRunFreshThenResumeWithRealBackendWiring(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checkpoint.CurrentNode != "done" || checkpoint.NextNode != "" {
+	if checkpoint.CurrentNode != "done" || checkpoint.NextNode != graph.Success {
 		t.Fatalf("checkpoint = %#v", checkpoint)
 	}
 
@@ -160,10 +158,8 @@ func TestRunFreshThenResumeWithRealBackendWiring(t *testing.T) {
 }
 
 func TestRunReturnsFailedRunAsCommandError(t *testing.T) {
-	pipeline := `{"nodes":[` +
-		`{"id":"start","type":"start","edges":[{"to":"check"}]},` +
-		`{"id":"check","type":"tool","tool_command":"exit 7","edges":[{"to":"done"}]},` +
-		`{"id":"done","type":"exit"}]}`
+	pipeline := `{"start":"check","nodes":[` +
+		`{"id":"check","type":"tool","tool_command":"exit 7","on_success":"success"}]}`
 	stdout, _, err := executeCommand(
 		"run", "--json", pipeline, "--workdir", t.TempDir(), "--logs", filepath.Join(t.TempDir(), "run"),
 	)
@@ -176,13 +172,11 @@ func TestRunReturnsFailedRunAsCommandError(t *testing.T) {
 }
 
 func TestRunSurfacesWarningsBeforeExecution(t *testing.T) {
-	pipeline := `{"nodes":[` +
-		`{"id":"start","type":"start","edges":[{"to":"fanout"}]},` +
-		`{"id":"fanout","type":"parallel","edges":[{"to":"left"},{"to":"right"}]},` +
-		`{"id":"left","type":"tool","tool_command":"true","max_visits":1,"edges":[{"to":"join"}]},` +
-		`{"id":"right","type":"tool","tool_command":"true","edges":[{"to":"join"}]},` +
-		`{"id":"join","type":"parallel.fan_in","prompt":"evaluate","edges":[{"to":"done"}]},` +
-		`{"id":"done","type":"exit"}]}`
+	pipeline := `{"start":"fanout","nodes":[` +
+		`{"id":"fanout","type":"parallel","branches":["left","right"]},` +
+		`{"id":"left","type":"tool","tool_command":"true","max_visits":1,"on_success":"join"},` +
+		`{"id":"right","type":"tool","tool_command":"true","on_success":"join"},` +
+		`{"id":"join","type":"parallel.fan_in","prompt":"evaluate","edges":[{"to":"success"}]}]}`
 	_, stderr, err := executeCommand(
 		"run", "--json", pipeline, "--workdir", t.TempDir(), "--logs", filepath.Join(t.TempDir(), "run"),
 	)

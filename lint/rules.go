@@ -8,63 +8,65 @@ import (
 	"github.com/tylergannon/tractor/graph"
 )
 
-func (a *analysis) startNode() []Diagnostic {
-	count := 0
-	for _, node := range a.graph.Nodes {
-		if _, ok := node.(*graph.StartNode); ok {
-			count++
+func (a *analysis) startTarget() []Diagnostic {
+	node, exists := a.byID[a.graph.Start]
+	if exists {
+		if _, supervisor := node.(*graph.SupervisorNode); !supervisor {
+			return nil
 		}
 	}
-	if count == 1 {
-		return nil
-	}
-	return []Diagnostic{diagnostic("start_node", SeverityError,
-		fmt.Sprintf("pipeline must have exactly one start node; found %d", count), "")}
+	return []Diagnostic{diagnostic("start_target", SeverityError,
+		fmt.Sprintf("start target %q must name an existing walk node", a.graph.Start), a.graph.Start)}
 }
 
-func (a *analysis) startSingleOutgoing() []Diagnostic {
-	var diagnostics []Diagnostic
-	for _, node := range a.graph.Nodes {
-		if _, ok := node.(*graph.StartNode); ok && len(node.Base().Edges) != 1 {
-			diagnostics = append(diagnostics, diagnostic("start_single_outgoing", SeverityError,
-				fmt.Sprintf("start node must have exactly one outgoing edge; found %d", len(node.Base().Edges)), node.Base().ID))
-		}
-	}
-	return diagnostics
-}
-
-func (a *analysis) terminalNode() []Diagnostic {
-	count := 0
-	for _, node := range a.graph.Nodes {
-		if _, ok := node.(*graph.ExitNode); ok {
-			count++
-		}
-	}
-	if count == 1 {
+func (a *analysis) terminalReachable() []Diagnostic {
+	if _, exists := a.byID[a.graph.Start]; !exists {
 		return nil
 	}
-	return []Diagnostic{diagnostic("terminal_node", SeverityError,
-		fmt.Sprintf("pipeline must have exactly one exit node; found %d", count), "")}
+	seen := map[string]struct{}{a.graph.Start: {}}
+	queue := []string{a.graph.Start}
+	for len(queue) > 0 {
+		from := queue[0]
+		queue = queue[1:]
+		for _, record := range a.out[from] {
+			to := record.edge.To
+			if to == graph.Success {
+				return nil
+			}
+			if graph.IsPseudoTarget(to) {
+				continue
+			}
+			if _, exists := a.byID[to]; !exists {
+				continue
+			}
+			if _, exists := seen[to]; exists {
+				continue
+			}
+			seen[to] = struct{}{}
+			queue = append(queue, to)
+		}
+	}
+	return []Diagnostic{diagnostic("terminal_reachable", SeverityError,
+		"no success pseudo-target is reachable from start", a.graph.Start)}
 }
 
 func (a *analysis) reachability() []Diagnostic {
-	startID := ""
-	count := 0
-	for _, node := range a.graph.Nodes {
-		if _, ok := node.(*graph.StartNode); ok {
-			startID = node.Base().ID
-			count++
-		}
-	}
-	if count != 1 {
+	start, exists := a.byID[a.graph.Start]
+	if !exists {
 		return nil
 	}
-	reachable := map[string]struct{}{startID: {}}
-	queue := []string{startID}
+	if _, supervisor := start.(*graph.SupervisorNode); supervisor {
+		return nil
+	}
+	reachable := map[string]struct{}{a.graph.Start: {}}
+	queue := []string{a.graph.Start}
 	for len(queue) > 0 {
 		from := queue[0]
 		queue = queue[1:]
 		for _, edge := range a.out[from] {
+			if graph.IsPseudoTarget(edge.edge.To) {
+				continue
+			}
 			if _, exists := a.byID[edge.edge.To]; !exists {
 				continue
 			}
@@ -77,6 +79,9 @@ func (a *analysis) reachability() []Diagnostic {
 	}
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
+		if _, supervisor := node.(*graph.SupervisorNode); supervisor {
+			continue
+		}
 		if _, exists := reachable[node.Base().ID]; !exists {
 			diagnostics = append(diagnostics, diagnostic("reachability", SeverityError,
 				"node is unreachable from start", node.Base().ID))
@@ -88,8 +93,8 @@ func (a *analysis) reachability() []Diagnostic {
 func (a *analysis) edgeTargetExists() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
-		for _, edge := range node.Base().Edges {
-			if _, exists := a.byID[edge.To]; !exists {
+		for _, edge := range routingEdges(node) {
+			if _, exists := a.byID[edge.To]; !exists && !graph.IsPseudoTarget(edge.To) {
 				diagnostics = append(diagnostics, edgeDiagnostic("edge_target_exists",
 					fmt.Sprintf("edge target %q does not exist", edge.To), node.Base().ID, edge.To))
 			}
@@ -98,23 +103,17 @@ func (a *analysis) edgeTargetExists() []Diagnostic {
 	return diagnostics
 }
 
-func (a *analysis) startNoIncoming() []Diagnostic {
+func (a *analysis) edgeTargetUnique() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
-		if _, ok := node.(*graph.StartNode); ok && len(a.in[node.Base().ID]) > 0 {
-			diagnostics = append(diagnostics, diagnostic("start_no_incoming", SeverityError,
-				"start node must have no incoming edges", node.Base().ID))
-		}
-	}
-	return diagnostics
-}
-
-func (a *analysis) exitNoOutgoing() []Diagnostic {
-	var diagnostics []Diagnostic
-	for _, node := range a.graph.Nodes {
-		if _, ok := node.(*graph.ExitNode); ok && len(node.Base().Edges) > 0 {
-			diagnostics = append(diagnostics, diagnostic("exit_no_outgoing", SeverityError,
-				"exit node must have no outgoing edges", node.Base().ID))
+		seen := map[string]struct{}{}
+		for _, edge := range graph.ChoiceEdges(node) {
+			if _, duplicate := seen[edge.To]; duplicate {
+				diagnostics = append(diagnostics, edgeDiagnostic("edge_target_unique",
+					fmt.Sprintf("choice target %q appears more than once", edge.To), node.Base().ID, edge.To))
+				continue
+			}
+			seen[edge.To] = struct{}{}
 		}
 	}
 	return diagnostics
@@ -123,35 +122,18 @@ func (a *analysis) exitNoOutgoing() []Diagnostic {
 func (a *analysis) deadEnd() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
-		if _, terminal := node.(*graph.ExitNode); !terminal && len(node.Base().Edges) == 0 {
+		empty := false
+		switch node := node.(type) {
+		case *graph.CodergenNode:
+			empty = len(node.Edges) == 0
+		case *graph.FanInNode:
+			empty = len(node.Edges) == 0
+		case *graph.ParallelNode:
+			empty = len(node.Branches) == 0
+		}
+		if empty {
 			diagnostics = append(diagnostics, diagnostic("dead_end", SeverityError,
-				"non-terminal node must have at least one outgoing edge", node.Base().ID))
-		}
-	}
-	return diagnostics
-}
-
-func (a *analysis) toolRouting() []Diagnostic {
-	var diagnostics []Diagnostic
-	for _, node := range a.graph.Nodes {
-		tool, ok := node.(*graph.ToolNode)
-		if !ok {
-			continue
-		}
-		count := len(tool.Edges)
-		valid := count == 1 || count == 2
-		if tool.OnFail != "" {
-			found := false
-			for _, edge := range tool.Edges {
-				found = found || edge.To == tool.OnFail
-			}
-			valid = valid && found
-		} else if count == 2 {
-			valid = false
-		}
-		if !valid {
-			diagnostics = append(diagnostics, diagnostic("tool_routing", SeverityError,
-				"tool node must have one or two outgoing edges; two edges require on_fail naming an outgoing target", tool.ID))
+				"walk node must have at least one routing target", node.Base().ID))
 		}
 	}
 	return diagnostics
@@ -340,7 +322,7 @@ func (a *analysis) branchEntry() []Diagnostic {
 func (a *analysis) maxVisitsPositive() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
-		value := node.Base().MaxVisits
+		value := graph.MaxVisits(node)
 		if value.Present && value.Value <= 0 {
 			diagnostics = append(diagnostics, diagnostic("max_visits_positive", SeverityError,
 				"max_visits must be positive", node.Base().ID))
@@ -385,12 +367,11 @@ func (a *analysis) maxRetriesNonnegative() []Diagnostic {
 func (a *analysis) edgeConditionMissing() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
-		_, codergen := node.(*graph.CodergenNode)
-		_, fanIn := node.(*graph.FanInNode)
-		if (!codergen && !fanIn) || len(node.Base().Edges) <= 1 {
+		edges := graph.ChoiceEdges(node)
+		if len(edges) <= 1 {
 			continue
 		}
-		for _, edge := range node.Base().Edges {
+		for _, edge := range edges {
 			if strings.TrimSpace(edge.Condition) == "" {
 				diagnostics = append(diagnostics, edgeDiagnostic("edge_condition_missing",
 					"choice edge condition must be non-empty", node.Base().ID, edge.To))
@@ -400,15 +381,89 @@ func (a *analysis) edgeConditionMissing() []Diagnostic {
 	return diagnostics
 }
 
-func (a *analysis) typeKnown() []Diagnostic {
+func (a *analysis) supervisesValid() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
-		if _, known := a.opts.knownTypes[node.NodeType()]; !known {
-			diagnostics = append(diagnostics, diagnostic("type_known", SeverityError,
-				fmt.Sprintf("node type %q is not registered", node.NodeType()), node.Base().ID))
+		supervisor, ok := node.(*graph.SupervisorNode)
+		if !ok {
+			continue
+		}
+		if len(supervisor.Supervises) == 0 {
+			diagnostics = append(diagnostics, diagnostic("supervises_valid", SeverityError,
+				"supervises must be non-empty", supervisor.ID))
+		}
+		seen := map[string]struct{}{}
+		for _, target := range supervisor.Supervises {
+			if target == supervisor.ID {
+				diagnostics = append(diagnostics, diagnostic("supervises_valid", SeverityError,
+					"a supervisor cannot supervise itself", supervisor.ID))
+			}
+			if _, duplicate := seen[target]; duplicate {
+				diagnostics = append(diagnostics, diagnostic("supervises_valid", SeverityError,
+					fmt.Sprintf("supervises target %q appears more than once", target), supervisor.ID))
+			}
+			if _, exists := a.byID[target]; !exists {
+				diagnostics = append(diagnostics, diagnostic("supervises_valid", SeverityError,
+					fmt.Sprintf("supervises target %q does not exist", target), supervisor.ID))
+			}
+			seen[target] = struct{}{}
+		}
+		interval, err := supervisor.IntervalValue().Parse()
+		if err != nil || interval <= 0 {
+			diagnostics = append(diagnostics, diagnostic("supervises_valid", SeverityError,
+				"supervisor interval must be positive", supervisor.ID))
 		}
 	}
 	return diagnostics
+}
+
+func (a *analysis) supervisorNotTargeted() []Diagnostic {
+	var diagnostics []Diagnostic
+	for _, node := range a.graph.Nodes {
+		if _, supervisor := node.(*graph.SupervisorNode); !supervisor {
+			continue
+		}
+		for _, incoming := range a.in[node.Base().ID] {
+			diagnostics = append(diagnostics, edgeDiagnostic("supervisor_not_targeted",
+				fmt.Sprintf("supervisor %q cannot be a routing target", node.Base().ID), incoming.from, node.Base().ID))
+		}
+	}
+	return diagnostics
+}
+
+func (a *analysis) supervisorCycle() []Diagnostic {
+	color := map[string]uint8{}
+	var visit func(string) *Diagnostic
+	visit = func(id string) *Diagnostic {
+		color[id] = 1
+		node, _ := a.byID[id].(*graph.SupervisorNode)
+		for _, target := range node.Supervises {
+			if _, supervisor := a.byID[target].(*graph.SupervisorNode); !supervisor {
+				continue
+			}
+			if color[target] == 1 {
+				finding := diagnostic("supervisor_cycle", SeverityError,
+					fmt.Sprintf("supervision relation contains a cycle through %q", target), id)
+				return &finding
+			}
+			if color[target] == 0 {
+				if finding := visit(target); finding != nil {
+					return finding
+				}
+			}
+		}
+		color[id] = 2
+		return nil
+	}
+	for _, node := range a.graph.Nodes {
+		if _, supervisor := node.(*graph.SupervisorNode); !supervisor || color[node.Base().ID] != 0 {
+			continue
+		}
+		if finding := visit(node.Base().ID); finding != nil {
+			return []Diagnostic{*finding}
+		}
+	}
+	return nil
 }
 
 func (a *analysis) fidelityValid() []Diagnostic {
@@ -500,7 +555,7 @@ func (a *analysis) threadHarnessConsistent() []Diagnostic {
 func (a *analysis) fanInMaxVisits() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
-		if _, fanIn := node.(*graph.FanInNode); fanIn && node.Base().MaxVisits.Present {
+		if fanIn, ok := node.(*graph.FanInNode); ok && fanIn.MaxVisits.Present {
 			diagnostics = append(diagnostics, diagnostic("fan_in_max_visits", SeverityWarning,
 				"max_visits on fan-in does not bound the parallel loop", node.Base().ID))
 		}
@@ -516,13 +571,13 @@ func (a *analysis) branchRootMaxVisits() []Diagnostic {
 			continue
 		}
 		seen := map[string]struct{}{}
-		for _, edge := range parallel.Edges {
-			if _, duplicate := seen[edge.To]; duplicate {
+		for _, target := range parallel.Branches {
+			if _, duplicate := seen[target]; duplicate {
 				continue
 			}
-			seen[edge.To] = struct{}{}
-			root, exists := a.byID[edge.To]
-			if exists && root.Base().MaxVisits.Present {
+			seen[target] = struct{}{}
+			root, exists := a.byID[target]
+			if exists && graph.MaxVisits(root).Present {
 				diagnostics = append(diagnostics, diagnostic("branch_root_max_visits", SeverityWarning,
 					fmt.Sprintf("max_visits on branch root silently shrinks later fan-outs from %q", parallel.ID), root.Base().ID))
 			}
@@ -535,9 +590,9 @@ func (a *analysis) promptOnLLMNodes() []Diagnostic {
 	var diagnostics []Diagnostic
 	for _, node := range a.graph.Nodes {
 		codergen, ok := node.(*graph.CodergenNode)
-		if ok && !codergen.Prompt.Present && !codergen.Label.Present {
+		if ok && (!codergen.Prompt.Present || strings.TrimSpace(codergen.Prompt.Value) == "") {
 			diagnostics = append(diagnostics, diagnostic("prompt_on_llm_nodes", SeverityWarning,
-				"codergen node should have an authored prompt or label", codergen.ID))
+				"codergen node should have a non-empty prompt", codergen.ID))
 		}
 	}
 	return diagnostics
@@ -563,8 +618,6 @@ func maxRetries(node graph.Node) (int, bool) {
 	case *graph.CodergenNode:
 		return node.MaxRetries.Value, node.MaxRetries.Present
 	case *graph.FanInNode:
-		return node.MaxRetries.Value, node.MaxRetries.Present
-	case *graph.CustomNode:
 		return node.MaxRetries.Value, node.MaxRetries.Present
 	default:
 		return 0, false

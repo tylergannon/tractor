@@ -3,6 +3,7 @@ package harness
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // ValidateCreateSessionInput validates the provider-neutral inputs available
@@ -66,23 +67,8 @@ func ValidateContentParts(parts []ContentPart) *Error {
 
 // ValidateCodergenTurn validates a fully resolved backend turn.
 func ValidateCodergenTurn(turn CodergenTurn) *Error {
-	if strings.TrimSpace(turn.NodeID) == "" {
-		return terminalError("node ID must not be empty")
-	}
-	if strings.TrimSpace(turn.Provider) == "" {
-		return terminalError("provider must not be empty")
-	}
-	if err := ValidateCreateSessionInput(turn.Model, turn.Workdir); err != nil {
+	if err := validateBackendTurn(turn.NodeID, turn.Provider, turn.Model, turn.ReasoningEffort, turn.Workdir, turn.RunLog, turn.Parts, turn.Timeout); err != nil {
 		return err
-	}
-	if strings.TrimSpace(turn.ReasoningEffort) == "" {
-		return terminalError("reasoning effort must not be empty")
-	}
-	if err := ValidateContentParts(turn.Parts); err != nil {
-		return err
-	}
-	if turn.Timeout < 0 {
-		return terminalError("timeout must not be negative")
 	}
 	switch turn.Fidelity {
 	case FidelityNone:
@@ -95,6 +81,40 @@ func ValidateCodergenTurn(turn CodergenTurn) *Error {
 		}
 	default:
 		return terminalError(fmt.Sprintf("unsupported fidelity %q", turn.Fidelity))
+	}
+	return nil
+}
+
+// ValidateSupervisorTurn validates a fully resolved advisory turn.
+func ValidateSupervisorTurn(turn SupervisorTurn) *Error {
+	return validateBackendTurn(turn.NodeID, turn.Provider, turn.Model, turn.ReasoningEffort, turn.Workdir, turn.RunLog, turn.Parts, turn.Timeout)
+}
+
+func validateBackendTurn(
+	nodeID, provider, model, reasoningEffort, workdir, runLog string,
+	parts []ContentPart,
+	timeout time.Duration,
+) *Error {
+	if strings.TrimSpace(nodeID) == "" {
+		return terminalError("node ID must not be empty")
+	}
+	if strings.TrimSpace(provider) == "" {
+		return terminalError("provider must not be empty")
+	}
+	if err := ValidateCreateSessionInput(model, workdir); err != nil {
+		return err
+	}
+	if strings.TrimSpace(reasoningEffort) == "" {
+		return terminalError("reasoning effort must not be empty")
+	}
+	if strings.TrimSpace(runLog) == "" {
+		return terminalError("run log must not be empty")
+	}
+	if err := ValidateContentParts(parts); err != nil {
+		return err
+	}
+	if timeout < 0 {
+		return terminalError("timeout must not be negative")
 	}
 	return nil
 }

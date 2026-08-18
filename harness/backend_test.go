@@ -11,12 +11,25 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/tylergannon/tractor/internal/runlog"
 )
 
 var outcomeSchema = json.RawMessage(`{
 	"type":"object",
 	"properties":{"next":{"type":"string"},"notes":{"type":"string"}},
 	"required":["next","notes"],
+	"additionalProperties":false
+}`)
+
+var verdictSchema = json.RawMessage(`{
+	"type":"object",
+	"properties":{
+		"verdict":{"type":"string","enum":["ok","steer"]},
+		"target":{"type":"string"},
+		"message":{"type":"string"}
+	},
+	"required":["verdict"],
 	"additionalProperties":false
 }`)
 
@@ -32,7 +45,7 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 	})
 
 	restored := testTurn("restored-node", "restored", FidelityFull, "provider-a", workdir)
-	if _, err := backend.Run(restored); err != nil {
+	if _, err := backend.Run(allocateTestTurn(t, backend, restored)); err != nil {
 		t.Fatalf("run restored binding: %v", err)
 	}
 	if got := primary.createdSessions(); len(got) != 0 {
@@ -40,7 +53,7 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 	}
 
 	turn := testTurn("review", "shared", FidelityFull, "provider-a", workdir)
-	outcome, err := backend.Run(turn)
+	outcome, err := backend.Run(allocateTestTurn(t, backend, turn))
 	if err != nil {
 		t.Fatalf("first Run() error = %v", err)
 	}
@@ -49,7 +62,7 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 	}
 
 	turn.Fidelity = FidelityCompacted
-	if _, err := backend.Run(turn); err != nil {
+	if _, err := backend.Run(allocateTestTurn(t, backend, turn)); err != nil {
 		t.Fatalf("compacted revisit Run() error = %v", err)
 	}
 	if got, want := primary.operations(), []string{
@@ -62,7 +75,7 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 		t.Fatalf("adapter operations = %v, want %v", got, want)
 	}
 	routed := testTurn("claude-task", "claude-task", FidelityFull, "provider-b", workdir)
-	routedOutcome, routeErr := backend.Run(routed)
+	routedOutcome, routeErr := backend.Run(allocateTestTurn(t, backend, routed))
 	if routeErr != nil {
 		t.Fatalf("provider-b Run() error = %v", routeErr)
 	}
@@ -72,14 +85,14 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 
 	wrongHarness := turn
 	wrongHarness.Provider = "provider-b"
-	assertTerminalError(t, runError(backend, wrongHarness))
+	assertTerminalError(t, runError(t, backend, wrongHarness))
 	if got := secondary.createdSessions(); !reflect.DeepEqual(got, []string{"secondary-1"}) {
 		t.Fatalf("secondary sessions after harness mismatch = %v", got)
 	}
 
 	primary.setCompactError(&Error{Category: ErrorRetryable, Message: "compact unavailable"})
 	beforeRuns := primary.runCount()
-	_, compactErr := backend.Run(turn)
+	_, compactErr := backend.Run(allocateTestTurn(t, backend, turn))
 	if compactErr == nil || compactErr.Category != ErrorRetryable {
 		t.Fatalf("compact failure = %v, want retryable error", compactErr)
 	}
@@ -89,10 +102,10 @@ func TestHarnessBackendFidelityBindingsAndInvariants(t *testing.T) {
 
 	primary.setCompactError(nil)
 	none := testTurn("isolated", "", FidelityNone, "provider-a", workdir)
-	if _, err := backend.Run(none); err != nil {
+	if _, err := backend.Run(allocateTestTurn(t, backend, none)); err != nil {
 		t.Fatalf("first none Run() error = %v", err)
 	}
-	if _, err := backend.Run(none); err != nil {
+	if _, err := backend.Run(allocateTestTurn(t, backend, none)); err != nil {
 		t.Fatalf("second none Run() error = %v", err)
 	}
 	created := primary.createdSessions()
@@ -121,11 +134,11 @@ func TestHarnessBackendStaleWorkdirRebindsAfterHarnessCheck(t *testing.T) {
 	})
 
 	stale := testTurn("node", "shared", FidelityCompacted, "provider-a", newWorkdir)
-	if _, err := backend.Run(stale); err != nil {
+	if _, err := backend.Run(allocateTestTurn(t, backend, stale)); err != nil {
 		t.Fatalf("Run() with stale workdir: %v", err)
 	}
 	stale.Fidelity = FidelityFull
-	if _, err := backend.Run(stale); err != nil {
+	if _, err := backend.Run(allocateTestTurn(t, backend, stale)); err != nil {
 		t.Fatalf("Run() after stale replacement: %v", err)
 	}
 	if got, want := primary.operations(), []string{
@@ -142,7 +155,7 @@ func TestHarnessBackendStaleWorkdirRebindsAfterHarnessCheck(t *testing.T) {
 	wrongHarness := stale
 	wrongHarness.Provider = "provider-b"
 	wrongHarness.Workdir = t.TempDir()
-	assertTerminalError(t, runError(backend, wrongHarness))
+	assertTerminalError(t, runError(t, backend, wrongHarness))
 	if got := secondary.createdSessions(); len(got) != 0 {
 		t.Fatalf("secondary sessions after harness and workdir mismatch = %v", got)
 	}
@@ -179,7 +192,7 @@ func TestHarnessBackendRecoversEventSequenceAcrossReconstruction(t *testing.T) {
 
 	first := construct(nil)
 	workdir := t.TempDir()
-	if _, err := first.Run(testTurn("first", "shared", FidelityFull, "provider", workdir)); err != nil {
+	if _, err := first.Run(allocateTestTurn(t, first, testTurn("first", "shared", FidelityFull, "provider", workdir))); err != nil {
 		t.Fatalf("first reconstructed Run(): %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(eventsRoot, "000010-first.jsonl")); err != nil {
@@ -187,7 +200,7 @@ func TestHarnessBackendRecoversEventSequenceAcrossReconstruction(t *testing.T) {
 	}
 
 	second := construct(first.Bindings())
-	if _, err := second.Run(testTurn("second", "shared", FidelityFull, "provider", workdir)); err != nil {
+	if _, err := second.Run(allocateTestTurn(t, second, testTurn("second", "shared", FidelityFull, "provider", workdir))); err != nil {
 		t.Fatalf("second reconstructed Run(): %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(eventsRoot, "000011-second.jsonl")); err != nil {
@@ -224,7 +237,7 @@ func TestHarnessBackendConcurrentControlsAndRunLogDiscovery(t *testing.T) {
 	}
 
 	results := make(chan runResult, 2)
-	go runAsync(backend, testTurnWithPrompt("node-one", "thread-one", "one", workdir), results)
+	go runAsync(backend, allocateTestTurn(t, backend, testTurnWithPrompt("node-one", "thread-one", "one", workdir)), results)
 	waitStarted(t, started, "one")
 	firstTarget := readCurrentTarget(t, backend.logsRoot)
 	if firstTarget != filepath.Join("events", "000001-node-one.jsonl") {
@@ -234,7 +247,7 @@ func TestHarnessBackendConcurrentControlsAndRunLogDiscovery(t *testing.T) {
 		t.Fatalf("Steer() with one live turn = %q", got)
 	}
 
-	go runAsync(backend, testTurnWithPrompt("node-two", "thread-two", "two", workdir), results)
+	go runAsync(backend, allocateTestTurn(t, backend, testTurnWithPrompt("node-two", "thread-two", "two", workdir)), results)
 	waitStarted(t, started, "two")
 	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "index.jsonl") {
 		t.Fatalf("current with two live turns = %q", got)
@@ -271,7 +284,7 @@ func TestHarnessBackendConcurrentControlsAndRunLogDiscovery(t *testing.T) {
 	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "index.jsonl") {
 		t.Fatalf("current after completion = %q", got)
 	}
-	if _, err := backend.Run(testTurnWithPrompt("node-three", "thread-three", "three", workdir)); err != nil {
+	if _, err := backend.Run(allocateTestTurn(t, backend, testTurnWithPrompt("node-three", "thread-three", "three", workdir))); err != nil {
 		t.Fatalf("Run() after overlap drains: %v", err)
 	}
 	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "000003-node-three.jsonl") {
@@ -285,13 +298,128 @@ func TestHarnessBackendConcurrentControlsAndRunLogDiscovery(t *testing.T) {
 	assertRunLog(t, backend.logsRoot, 3)
 }
 
+func TestHarnessBackendSupervisorBindingVerdictAndCallback(t *testing.T) {
+	workdir := t.TempDir()
+	adapter := &scriptedAdapter{name: "scripted"}
+	adapter.run = func(RunTurnInput, OnEvent) (Result, *Error) {
+		return Result{"verdict": "steer", "target": "build", "message": "inspect the failure"}, nil
+	}
+	backend := newTestBackend(t, map[string]HarnessAdapter{"scripted": adapter}, map[string]string{"provider": "scripted"}, nil)
+	var opened []ThreadBinding
+	backend.SetBindingOpened(func(key string, binding ThreadBinding) *Error {
+		if key != "coach" {
+			t.Fatalf("opened key = %q", key)
+		}
+		if got := backend.Bindings()[key]; got != binding {
+			t.Fatalf("binding during callback = %#v, want %#v", got, binding)
+		}
+		if got := adapter.runCount(); got != 0 {
+			t.Fatalf("turn dispatched before binding callback: run count = %d", got)
+		}
+		opened = append(opened, binding)
+		return nil
+	})
+
+	turn := testSupervisorTurn("coach", "provider", workdir)
+	verdict, err := backend.RunSupervisor(allocateTestSupervisorTurn(t, backend, turn))
+	if err != nil {
+		t.Fatalf("RunSupervisor() error = %v", err)
+	}
+	if verdict != (Verdict{Verdict: "steer", Target: "build", Message: "inspect the failure"}) {
+		t.Fatalf("RunSupervisor() = %#v", verdict)
+	}
+	if _, err := backend.RunSupervisor(allocateTestSupervisorTurn(t, backend, turn)); err != nil {
+		t.Fatalf("second RunSupervisor() error = %v", err)
+	}
+	if len(opened) != 1 {
+		t.Fatalf("binding callbacks = %d, want 1", len(opened))
+	}
+	if got, want := adapter.operations(), []string{"create:scripted-1", "run:scripted-1", "run:scripted-1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("adapter operations = %v, want %v", got, want)
+	}
+}
+
+func TestHarnessBackendSupervisorIsNotSteerableButIsInterruptibleAndLive(t *testing.T) {
+	workdir := t.TempDir()
+	started := make(chan string, 2)
+	supervisorGate := make(chan struct{})
+	walkGate := make(chan struct{})
+	adapter := &scriptedAdapter{name: "scripted"}
+	adapter.run = func(input RunTurnInput, onEvent OnEvent) (Result, *Error) {
+		text := input.Parts[0].Text
+		onEvent(Event{"type": EventUser, "parts": input.Parts})
+		started <- text
+		if text == "supervise" {
+			<-supervisorGate
+			onEvent(Event{"type": EventAssistant, "text": "supervisor done"})
+			return Result{"verdict": "ok"}, nil
+		}
+		<-walkGate
+		onEvent(Event{"type": EventAssistant, "text": "walk done"})
+		return Result{"next": "done", "notes": "walk"}, nil
+	}
+	backend := newTestBackend(t, map[string]HarnessAdapter{"scripted": adapter}, map[string]string{"provider": "scripted"}, nil)
+
+	supervisorResults := make(chan supervisorRunResult, 1)
+	go runSupervisorAsync(backend, allocateTestSupervisorTurn(t, backend, testSupervisorTurn("coach", "provider", workdir)), supervisorResults)
+	waitStarted(t, started, "supervise")
+	if got := backend.Steer(textParts("must not reach supervisor")); got != SteerNotActive {
+		t.Fatalf("Steer() with only supervisor live = %q", got)
+	}
+	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "000001-coach.jsonl") {
+		t.Fatalf("current with supervisor live = %q", got)
+	}
+
+	walkResults := make(chan runResult, 1)
+	go runAsync(backend, allocateTestTurn(t, backend, testTurnWithPrompt("build", "build", "walk", workdir)), walkResults)
+	waitStarted(t, started, "walk")
+	if got := readCurrentTarget(t, backend.logsRoot); got != filepath.Join("events", "index.jsonl") {
+		t.Fatalf("current with walk and supervisor live = %q", got)
+	}
+	if got := backend.Steer(textParts("walk only")); got != SteerAccepted {
+		t.Fatalf("Steer() with walk and supervisor live = %q", got)
+	}
+	backend.InterruptAll()
+	if got, want := adapter.interruptedSessions(), []string{"scripted-1", "scripted-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("interrupted sessions = %v, want %v", got, want)
+	}
+	if got, want := adapter.steeredSessions(), []string{"scripted-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("steered sessions = %v, want %v", got, want)
+	}
+
+	close(walkGate)
+	if result := <-walkResults; result.err != nil {
+		t.Fatalf("walk completion = %#v", result)
+	}
+	close(supervisorGate)
+	if result := <-supervisorResults; result.err != nil || result.verdict.Verdict != "ok" {
+		t.Fatalf("supervisor completion = %#v", result)
+	}
+}
+
+func TestHarnessBackendBindingCallbackFailurePreventsDispatch(t *testing.T) {
+	adapter := &scriptedAdapter{name: "scripted"}
+	backend := newTestBackend(t, map[string]HarnessAdapter{"scripted": adapter}, map[string]string{"provider": "scripted"}, nil)
+	backend.SetBindingOpened(func(string, ThreadBinding) *Error {
+		return &Error{Category: ErrorTerminal, Message: "checkpoint failed"}
+	})
+	_, err := backend.RunSupervisor(allocateTestSupervisorTurn(t, backend, testSupervisorTurn("coach", "provider", t.TempDir())))
+	assertTerminalError(t, err)
+	if got := adapter.runCount(); got != 0 {
+		t.Fatalf("turns dispatched = %d, want 0", got)
+	}
+	if _, exists := backend.Bindings()["coach"]; exists {
+		t.Fatal("failed callback left supervisor binding published")
+	}
+}
+
 func TestHarnessBackendRejectsUndecodableOutcome(t *testing.T) {
 	adapter := &scriptedAdapter{name: "scripted"}
 	adapter.run = func(RunTurnInput, OnEvent) (Result, *Error) {
 		return Result{"next": "done", "notes": 42}, nil
 	}
 	backend := newTestBackend(t, map[string]HarnessAdapter{"scripted": adapter}, map[string]string{"provider": "scripted"}, nil)
-	assertTerminalError(t, runError(backend, testTurn("node", "thread", FidelityFull, "provider", t.TempDir())))
+	assertTerminalError(t, runError(t, backend, testTurn("node", "thread", FidelityFull, "provider", t.TempDir())))
 }
 
 func TestHarnessBackendValidatesAdapterResultAgainstTurnSchema(t *testing.T) {
@@ -333,7 +461,7 @@ func TestHarnessBackendValidatesAdapterResultAgainstTurnSchema(t *testing.T) {
 			)
 			turn := testTurn("node", "thread", FidelityFull, "provider", t.TempDir())
 			turn.OutputSchema = test.schema
-			got, err := backend.Run(turn)
+			got, err := backend.Run(allocateTestTurn(t, backend, turn))
 			if test.wantErr {
 				assertTerminalError(t, err)
 				return
@@ -481,9 +609,19 @@ type runResult struct {
 	err     *Error
 }
 
+type supervisorRunResult struct {
+	verdict Verdict
+	err     *Error
+}
+
 func runAsync(backend *HarnessBackend, turn CodergenTurn, results chan<- runResult) {
 	outcome, err := backend.Run(turn)
 	results <- runResult{node: turn.NodeID, outcome: outcome, err: err}
+}
+
+func runSupervisorAsync(backend *HarnessBackend, turn SupervisorTurn, results chan<- supervisorRunResult) {
+	verdict, err := backend.RunSupervisor(turn)
+	results <- supervisorRunResult{verdict: verdict, err: err}
 }
 
 func newTestBackend(
@@ -526,13 +664,54 @@ func testTurnWithPromptAndFidelity(
 	}
 }
 
+func testSupervisorTurn(nodeID, provider, workdir string) SupervisorTurn {
+	return SupervisorTurn{
+		NodeID:          nodeID,
+		Parts:           textParts("supervise"),
+		OutputSchema:    verdictSchema,
+		Model:           "model",
+		Provider:        provider,
+		ReasoningEffort: "medium",
+		Workdir:         workdir,
+	}
+}
+
 func textParts(text string) []ContentPart {
 	return []ContentPart{{Type: ContentPartText, Text: text}}
 }
 
-func runError(backend *HarnessBackend, turn CodergenTurn) *Error {
-	_, err := backend.Run(turn)
+func runError(t *testing.T, backend *HarnessBackend, turn CodergenTurn) *Error {
+	t.Helper()
+	_, err := backend.Run(allocateTestTurn(t, backend, turn))
 	return err
+}
+
+func allocateTestTurn(t *testing.T, backend *HarnessBackend, turn CodergenTurn) CodergenTurn {
+	t.Helper()
+	allocator, err := runlog.New(backend.logsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	segment, err := allocator.Allocate(turn.NodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.RunLog = segment.Path
+	return turn
+}
+
+func allocateTestSupervisorTurn(t *testing.T, backend *HarnessBackend, turn SupervisorTurn) SupervisorTurn {
+	t.Helper()
+	allocator, err := runlog.New(backend.logsRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	segment, err := allocator.Allocate(turn.NodeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.RunLog = segment.Path
+	return turn
 }
 
 func waitStarted(t *testing.T, started <-chan string, want string) {

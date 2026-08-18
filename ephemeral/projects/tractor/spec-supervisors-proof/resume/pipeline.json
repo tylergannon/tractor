@@ -1,0 +1,38 @@
+{
+  "name": "supervisor-resume-proof",
+  "goal": "prove supervisor resume",
+  "defaults": {
+    "llm_provider": "openai",
+    "llm_model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "timeout": "120s"
+  },
+  "start": "prepare",
+  "nodes": [
+    {
+      "id": "prepare",
+      "type": "tool",
+      "tool_command": "printf 'prepared\\n' > prepared.txt",
+      "on_success": "work"
+    },
+    {
+      "id": "work",
+      "type": "codergen",
+      "prompt": "Inspect the workspace. If first-started.txt already exists, create resumed-success.txt containing exactly RESUMED and finish. Otherwise run one foreground shell command that writes STARTED to first-started.txt, sleeps for 60 seconds, and then exits; wait for it.",
+      "fidelity": "full",
+      "thread_id": "worker-thread",
+      "edges": [{ "to": "success" }]
+    },
+    {
+      "id": "coach",
+      "type": "supervisor",
+      "prompt": "Return verdict ok with message resume-watch.",
+      "supervises": ["prepare", "work"],
+      "interval": "2s",
+      "timeout": "60s",
+      "llm_provider": "anthropic",
+      "llm_model": "fable",
+      "reasoning_effort": "low"
+    }
+  ]
+}

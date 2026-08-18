@@ -1,0 +1,4 @@
+{"node_id":"coach","parts":[{"type":"text","text":"Patrol nudge:\n{\n  \"live\": [\n    {\n      \"node_id\": \"work\",\n      \"attempt\": 1,\n      \"run_log\": \"/tmp/tractor-supervisor-resume-logs.GMI9De/events/000001-work.jsonl\"\n    }\n  ],\n  \"count\": 0\n}"}],"ts":"2026-08-18T01:16:06.293699Z","type":"user"}
+{"args":{"message":"resume-watch","verdict":"ok"},"call_id":"toolu_01FhBecPNWCQLAB2GWu8jg67","name":"StructuredOutput","node_id":"coach","ts":"2026-08-18T01:16:09.437916Z","type":"tool_call"}
+{"call_id":"toolu_01FhBecPNWCQLAB2GWu8jg67","node_id":"coach","output":"Structured output provided successfully","ts":"2026-08-18T01:16:09.445152Z","type":"tool_result"}
+{"node_id":"coach","ts":"2026-08-18T01:16:09.454833Z","type":"usage","usage":{"cache_creation_input_tokens":226,"cache_read_input_tokens":33190,"input_tokens":2,"output_tokens":79}}

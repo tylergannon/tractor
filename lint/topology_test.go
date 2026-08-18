@@ -23,9 +23,9 @@ func TestParallelForFanInRejectsMissingOrAmbiguousOwner(t *testing.T) {
 		t.Fatalf("missing owner error = %v", err)
 	}
 
-	ambiguous := graph.Graph{Nodes: []graph.Node{
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "first", Edges: []graph.Edge{edge("left")}}},
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "second", Edges: []graph.Edge{edge("right")}}},
+	ambiguous := graph.Graph{Start: "first", Nodes: []graph.Node{
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "first"}, Branches: []string{"left"}},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "second"}, Branches: []string{"right"}},
 		codergen("left", edge("join")),
 		codergen("right", edge("join")),
 		fanIn("join"),

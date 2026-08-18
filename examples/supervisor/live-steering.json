@@ -1,0 +1,43 @@
+{
+  "name": "supervisor-live-steering",
+  "goal": "Prove that an in-graph Claude supervisor can steer a live Codex worker",
+  "defaults": {
+    "llm_provider": "openai",
+    "llm_model": "gpt-5.6-sol",
+    "reasoning_effort": "low",
+    "timeout": "90s"
+  },
+  "start": "prepare",
+  "nodes": [
+    {
+      "id": "prepare",
+      "type": "tool",
+      "tool_command": "printf 'prepared\\n' > supervisor-prepared.txt",
+      "on_success": "work"
+    },
+    {
+      "id": "work",
+      "type": "codergen",
+      "prompt": "Run one foreground shell command that writes ready followed by a newline to supervisor-ready.txt, sleeps for 15 seconds, and then exits. Wait for it. A supervisor will send a steering instruction while that command is running. After it finishes, follow the instruction exactly. Do not create supervisor-received.txt unless the steering instruction requests it.",
+      "fidelity": "none",
+      "edges": [{ "to": "verify" }]
+    },
+    {
+      "id": "verify",
+      "type": "tool",
+      "tool_command": "test \"$(cat supervisor-received.txt)\" = TRACTOR_SUPERVISOR_RECEIVED",
+      "on_success": "success"
+    },
+    {
+      "id": "coach",
+      "type": "supervisor",
+      "prompt": "Whenever work is live, return verdict steer, target work, and message: Create supervisor-received.txt containing exactly TRACTOR_SUPERVISOR_RECEIVED and then finish.",
+      "supervises": ["prepare", "work"],
+      "interval": "2s",
+      "timeout": "60s",
+      "llm_provider": "anthropic",
+      "llm_model": "fable",
+      "reasoning_effort": "low"
+    }
+  ]
+}

@@ -57,6 +57,7 @@ func TestCodergenHandlerBuildsExactTurnSchemaAndArtifacts(t *testing.T) {
 	outcome, runErr := handler.Execute(node, offered, ExecutionScope{
 		Workdir:  "/workspace",
 		StageDir: stageDir,
+		RunLog:   filepath.Join(stageDir, "events.jsonl"),
 		Goal:     "ship it",
 		Stop:     NewStopSignal(),
 	}, pipeline)
@@ -77,6 +78,7 @@ func TestCodergenHandlerBuildsExactTurnSchemaAndArtifacts(t *testing.T) {
 		Fidelity:        harness.FidelityNone,
 		ThreadKey:       "",
 		Workdir:         "/workspace",
+		RunLog:          filepath.Join(stageDir, "events.jsonl"),
 		Timeout:         3 * time.Second,
 	}
 	if !reflect.DeepEqual(backend.turns, []harness.CodergenTurn{wantTurn}) {
@@ -170,8 +172,9 @@ func TestCodergenHandlerResolutionPrecedenceAndProviderAutodetection(t *testing.
 			test.config.Backend = backend
 			node := &graph.CodergenNode{NodeBase: graph.NodeBase{ID: "work", Label: optional("Work")}, LLMNodeFields: test.nodeFields}
 			pipeline := &graph.Graph{Defaults: test.defaults, Nodes: []graph.Node{node, exitNode("done")}}
+			stageDir := t.TempDir()
 			_, runErr := NewCodergenHandler(test.config).Execute(node, []graph.Edge{{To: "done"}}, ExecutionScope{
-				Workdir: "/workspace", StageDir: t.TempDir(), Stop: NewStopSignal(),
+				Workdir: "/workspace", StageDir: stageDir, RunLog: filepath.Join(stageDir, "events.jsonl"), Stop: NewStopSignal(),
 			}, pipeline)
 			if runErr != nil {
 				t.Fatal(runErr)
@@ -200,7 +203,7 @@ func TestChoiceSchemaOmitsNextForZeroOrOneSuccessor(t *testing.T) {
 
 func TestChoiceSchemaRouteDescriptionFallsBackToLabelThenID(t *testing.T) {
 	pipeline := &graph.Graph{Nodes: []graph.Node{
-		&graph.ExitNode{NodeBase: graph.NodeBase{ID: "retry", Label: optional("Try again")}},
+		&graph.SupervisorNode{NodeBase: graph.NodeBase{ID: "retry", Label: optional("Try again")}, Prompt: "__test_exit__"},
 		exitNode("done"),
 	}}
 	schema, err := choiceSchema([]graph.Edge{{To: "retry"}, {To: "done"}}, pipeline)
@@ -257,7 +260,7 @@ func TestCodergenHandlerPassesBackendErrorUnchanged(t *testing.T) {
 	backend := &captureBackend{runErr: wantError}
 	node := &graph.CodergenNode{NodeBase: graph.NodeBase{ID: "work", Label: optional("Work")}}
 	_, runErr := NewCodergenHandler(CodergenConfig{Backend: backend, DefaultModel: "gpt-5.3-codex"}).Execute(
-		node, []graph.Edge{{To: "done"}}, ExecutionScope{Workdir: "/workspace", StageDir: stageDir, Stop: NewStopSignal()},
+		node, []graph.Edge{{To: "done"}}, ExecutionScope{Workdir: "/workspace", StageDir: stageDir, RunLog: filepath.Join(stageDir, "events.jsonl"), Stop: NewStopSignal()},
 		&graph.Graph{Nodes: []graph.Node{node, exitNode("done")}},
 	)
 	if runErr != wantError {
@@ -340,6 +343,10 @@ func (b *captureBackend) Run(turn harness.CodergenTurn) (harness.Outcome, *harne
 	return b.outcome, b.runErr
 }
 
+func (*captureBackend) RunSupervisor(harness.SupervisorTurn) (harness.Verdict, *harness.Error) {
+	return harness.Verdict{}, nil
+}
+
 func (*captureBackend) Steer([]harness.ContentPart) harness.SteerStatus {
 	return harness.SteerNotActive
 }
@@ -347,3 +354,5 @@ func (*captureBackend) Steer([]harness.ContentPart) harness.SteerStatus {
 func (*captureBackend) InterruptAll() {}
 
 func (*captureBackend) Bindings() map[string]harness.ThreadBinding { return nil }
+
+func (*captureBackend) SetBindingOpened(harness.BindingOpened) {}

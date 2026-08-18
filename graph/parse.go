@@ -35,13 +35,13 @@ func finishGraph(graph *Graph) error {
 	seen := make(map[string]struct{}, len(graph.Nodes))
 	for _, node := range graph.Nodes {
 		id := node.Base().ID
+		if IsPseudoTarget(id) {
+			return fmt.Errorf("node ID %q is reserved for a terminal pseudo-target", id)
+		}
 		if _, exists := seen[id]; exists {
 			return fmt.Errorf("duplicate node ID %q", id)
 		}
 		seen[id] = struct{}{}
-		if node.Base().Edges == nil {
-			node.Base().Edges = []Edge{}
-		}
 	}
 	graph.applyDefaults()
 	return nil
@@ -83,11 +83,11 @@ func (g *Graph) applyDefaults() {
 			inheritLLM(&current.LLMNodeFields, g.Defaults)
 		case *ToolNode:
 			inherit(&current.Timeout, g.Defaults.Timeout)
-		case *CustomNode:
-			inherit(&current.MaxRetries, g.Defaults.MaxRetries)
-			if current.Custom.value == nil {
-				current.Custom.value = map[string]any{}
-			}
+		case *SupervisorNode:
+			inherit(&current.Timeout, g.Defaults.Timeout)
+			inherit(&current.LLMModel, g.Defaults.LLMModel)
+			inherit(&current.LLMProvider, g.Defaults.LLMProvider)
+			inherit(&current.ReasoningEffort, g.Defaults.ReasoningEffort)
 		}
 	}
 }

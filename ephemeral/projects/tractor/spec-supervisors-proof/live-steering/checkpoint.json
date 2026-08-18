@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-08-18T01:35:24.910352Z",
+  "current_node": "verify",
+  "next_node": "success",
+  "completed_nodes": [
+    "prepare",
+    "work",
+    "verify"
+  ],
+  "node_visits": {
+    "prepare": 1,
+    "verify": 1,
+    "work": 1
+  },
+  "node_attempts": {
+    "prepare": 1,
+    "verify": 1,
+    "work": 1
+  },
+  "seq": 3,
+  "retry_visit": false,
+  "last_stage": "verify",
+  "last_response": "exit 0: ",
+  "sessions": {
+    "\u0000none:work": {
+      "harness": "codex",
+      "session_id": "01a01281-c005-7723-a3c3-c9fb5e206645",
+      "workdir": "/tmp/tractor-live-supervisor-v3-work.sv213X"
+    },
+    "coach": {
+      "harness": "claude",
+      "session_id": "9ab29fec-103a-44d2-85ad-a5e1714733e9",
+      "workdir": "/tmp/tractor-live-supervisor-v3-work.sv213X"
+    }
+  }
+}

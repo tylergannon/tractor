@@ -17,12 +17,10 @@ var _ = jsonschema.NewJSONSchemaMethod(
 	jsonschema.WithInterface(
 		Graph{}.Nodes,
 		jsonschema.Discriminator("type"),
-		jsonschema.Impl("start", (*StartNode)(nil)),
-		jsonschema.Impl("exit", (*ExitNode)(nil)),
 		jsonschema.Impl("codergen", (*CodergenNode)(nil)),
 		jsonschema.Impl("parallel", (*ParallelNode)(nil)),
 		jsonschema.Impl("parallel.fan_in", (*FanInNode)(nil)),
 		jsonschema.Impl("tool", (*ToolNode)(nil)),
-		jsonschema.Impl("__custom__", (*CustomNode)(nil)),
+		jsonschema.Impl("supervisor", (*SupervisorNode)(nil)),
 	),
 )

@@ -2,7 +2,6 @@
 package graph
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,6 +23,9 @@ type Graph struct {
 
 	// Defaults contains file-level defaults for node fields.
 	Defaults Defaults `json:"defaults,omitzero"`
+
+	// Start names the walk node where execution begins.
+	Start string `json:"start"`
 
 	// Nodes is the graph. Each node carries its outgoing edges.
 	Nodes []Node `json:"nodes"`
@@ -91,10 +93,8 @@ type Node interface {
 
 // NodeBase contains fields admitted on every node type.
 type NodeBase struct {
-	ID        string                      `json:"id"`
-	Label     jsonschema.Optional[string] `json:"label,omitzero"`
-	Edges     []Edge                      `json:"edges,omitzero"`
-	MaxVisits jsonschema.Optional[int]    `json:"max_visits,omitzero"`
+	ID    string                      `json:"id"`
+	Label jsonschema.Optional[string] `json:"label,omitzero"`
 }
 
 // DisplayLabel returns the configured label or the node ID.
@@ -105,23 +105,11 @@ func (n *NodeBase) DisplayLabel() string {
 	return n.ID
 }
 
-// StartNode is the pipeline entry point.
-type StartNode struct{ NodeBase }
-
-func (*StartNode) isNode()           {}
-func (n *StartNode) Base() *NodeBase { return &n.NodeBase }
-func (*StartNode) NodeType() string  { return "start" }
-
-// ExitNode is the pipeline terminal node.
-type ExitNode struct{ NodeBase }
-
-func (*ExitNode) isNode()           {}
-func (n *ExitNode) Base() *NodeBase { return &n.NodeBase }
-func (*ExitNode) NodeType() string  { return "exit" }
-
 // CodergenNode runs an LLM task.
 type CodergenNode struct {
 	NodeBase
+	Edges     []Edge                   `json:"edges,omitzero"`
+	MaxVisits jsonschema.Optional[int] `json:"max_visits,omitzero"`
 	LLMNodeFields
 }
 
@@ -132,6 +120,8 @@ func (*CodergenNode) NodeType() string  { return "codergen" }
 // FanInNode evaluates parallel branch evidence with an LLM turn.
 type FanInNode struct {
 	NodeBase
+	Edges     []Edge                   `json:"edges,omitzero"`
+	MaxVisits jsonschema.Optional[int] `json:"max_visits,omitzero"`
 	LLMNodeFields
 }
 
@@ -163,8 +153,10 @@ func (n *LLMNodeFields) PromptValue(label string) string {
 type ToolNode struct {
 	NodeBase
 	ToolCommand string                        `json:"tool_command"`
-	OnFail      string                        `json:"on_fail,omitzero"`
+	OnSuccess   string                        `json:"on_success"`
+	OnError     jsonschema.Optional[string]   `json:"on_error,omitzero"`
 	Timeout     jsonschema.Optional[Duration] `json:"timeout,omitzero"`
+	MaxVisits   jsonschema.Optional[int]      `json:"max_visits,omitzero"`
 }
 
 func (*ToolNode) isNode()           {}
@@ -174,50 +166,30 @@ func (*ToolNode) NodeType() string  { return "tool" }
 // ParallelNode concurrently walks each outgoing branch.
 type ParallelNode struct {
 	NodeBase
+	Branches    []string                 `json:"branches"`
 	MaxParallel jsonschema.Optional[int] `json:"max_parallel,omitzero"`
+	MaxVisits   jsonschema.Optional[int] `json:"max_visits,omitzero"`
 }
 
 func (*ParallelNode) isNode()           {}
 func (n *ParallelNode) Base() *NodeBase { return &n.NodeBase }
 func (*ParallelNode) NodeType() string  { return "parallel" }
 
-// CustomNode is the generic shape for a registered custom handler type.
-type CustomNode struct {
+// SupervisorNode observes declared nodes and coaches them outside the walk.
+type SupervisorNode struct {
 	NodeBase
-	Type       string                   `json:"type"`
-	MaxRetries jsonschema.Optional[int] `json:"max_retries,omitzero"`
-	Custom     OpaqueObject             `json:"custom,omitzero"`
+	Prompt          string                        `json:"prompt"`
+	Supervises      []string                      `json:"supervises"`
+	Interval        jsonschema.Optional[Duration] `json:"interval,omitzero"`
+	Timeout         jsonschema.Optional[Duration] `json:"timeout,omitzero"`
+	LLMModel        jsonschema.Optional[string]   `json:"llm_model,omitzero"`
+	LLMProvider     jsonschema.Optional[string]   `json:"llm_provider,omitzero"`
+	ReasoningEffort jsonschema.Optional[string]   `json:"reasoning_effort,omitzero"`
 }
 
-func (*CustomNode) isNode()            {}
-func (n *CustomNode) Base() *NodeBase  { return &n.NodeBase }
-func (n *CustomNode) NodeType() string { return n.Type }
-
-// OpaqueObject carries custom-handler configuration without interpretation.
-// Its generated placeholder schema is opened by the deterministic schema
-// normalization step because go-gen-jsonschema intentionally has no map type.
-type OpaqueObject struct {
-	value map[string]any
-}
-
-// Values returns the opaque object's decoded members.
-func (o OpaqueObject) Values() map[string]any { return o.value }
-
-func (o *OpaqueObject) UnmarshalJSON(data []byte) error {
-	var value map[string]any
-	if err := json.Unmarshal(data, &value); err != nil {
-		return err
-	}
-	o.value = value
-	return nil
-}
-
-func (o OpaqueObject) MarshalJSON() ([]byte, error) {
-	if o.value == nil {
-		return []byte("{}"), nil
-	}
-	return json.Marshal(o.value)
-}
+func (*SupervisorNode) isNode()           {}
+func (n *SupervisorNode) Base() *NodeBase { return &n.NodeBase }
+func (*SupervisorNode) NodeType() string  { return "supervisor" }
 
 // MaxParallelValue returns the explicit maximum or the system default.
 func (n *ParallelNode) MaxParallelValue() int {
@@ -225,6 +197,80 @@ func (n *ParallelNode) MaxParallelValue() int {
 		return n.MaxParallel.Value
 	}
 	return 4
+}
+
+// IntervalValue returns the explicit patrol interval or the system default.
+func (n *SupervisorNode) IntervalValue() Duration {
+	if n.Interval.Present {
+		return n.Interval.Value
+	}
+	return "60s"
+}
+
+const (
+	// Success is the terminal pseudo-target that completes a run.
+	Success = "success"
+	// Failure is the terminal pseudo-target that deliberately fails a run.
+	Failure = "failure"
+)
+
+// IsPseudoTarget reports whether target names a terminal pseudo-target.
+func IsPseudoTarget(target string) bool { return target == Success || target == Failure }
+
+// RoutingTargets returns the authored routing targets for a walk node.
+func RoutingTargets(node Node) []string {
+	switch node := node.(type) {
+	case *CodergenNode:
+		return edgeTargets(node.Edges)
+	case *FanInNode:
+		return edgeTargets(node.Edges)
+	case *ToolNode:
+		targets := []string{node.OnSuccess}
+		if node.OnError.Present {
+			targets = append(targets, node.OnError.Value)
+		}
+		return targets
+	case *ParallelNode:
+		return node.Branches
+	default:
+		return nil
+	}
+}
+
+// ChoiceEdges returns the authored choice edges for a chooser node.
+func ChoiceEdges(node Node) []Edge {
+	switch node := node.(type) {
+	case *CodergenNode:
+		return node.Edges
+	case *FanInNode:
+		return node.Edges
+	default:
+		return nil
+	}
+}
+
+// MaxVisits returns a node's optional visit budget.
+func MaxVisits(node Node) jsonschema.Optional[int] {
+	switch node := node.(type) {
+	case *CodergenNode:
+		return node.MaxVisits
+	case *FanInNode:
+		return node.MaxVisits
+	case *ToolNode:
+		return node.MaxVisits
+	case *ParallelNode:
+		return node.MaxVisits
+	default:
+		return jsonschema.Optional[int]{}
+	}
+}
+
+func edgeTargets(edges []Edge) []string {
+	targets := make([]string, len(edges))
+	for i, edge := range edges {
+		targets[i] = edge.To
+	}
+	return targets
 }
 
 // ThreadKey returns the explicit thread ID or the node ID.

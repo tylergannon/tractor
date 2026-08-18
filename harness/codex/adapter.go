@@ -142,7 +142,7 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 		connection.close()
 	}()
 
-	params, err := turnStartParams(input)
+	params, optionalProperties, err := turnStartParams(input)
 	if err != nil {
 		return nil, terminal(err.Error())
 	}
@@ -173,6 +173,10 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	raw, runErr := waitTurn(connection, input, turnID, active)
 	if runErr != nil {
 		return nil, runErr
+	}
+	raw, err = omitOptionalNulls(raw, optionalProperties)
+	if err != nil {
+		return nil, terminal(fmt.Sprintf("normalize Codex result: %v", err))
 	}
 	return validator.Validate(raw)
 }
@@ -421,10 +425,10 @@ func finishActive(state *sessionState, active *activeTurn) {
 	active.controls.Wait()
 }
 
-func turnStartParams(input harness.RunTurnInput) (schema.TurnStartParams, error) {
-	var outputSchema any
-	if err := json.Unmarshal(input.OutputSchema, &outputSchema); err != nil {
-		return schema.TurnStartParams{}, fmt.Errorf("decode output schema: %w", err)
+func turnStartParams(input harness.RunTurnInput) (schema.TurnStartParams, map[string]struct{}, error) {
+	outputSchema, optionalProperties, err := codexCompatibleOutputSchema(input.OutputSchema)
+	if err != nil {
+		return schema.TurnStartParams{}, nil, err
 	}
 	model := input.Model
 	workdir := input.Workdir
@@ -437,7 +441,7 @@ func turnStartParams(input harness.RunTurnInput) (schema.TurnStartParams, error)
 		OutputSchema:   outputSchema,
 		ApprovalPolicy: "never",
 		SandboxPolicy:  map[string]any{"type": "dangerFullAccess"},
-	}, nil
+	}, optionalProperties, nil
 }
 
 func nativeInput(parts []harness.ContentPart) []schema.UserInput {

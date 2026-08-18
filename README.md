@@ -1,10 +1,35 @@
 # Tractor
 
-Tractor is a Go module. Pipeline files may be JSON, YAML, or YML; inline
-documents use `--json` or `--yaml`.
+Tractor is the Go implementation of the normative [Attractor
+specification](docs/spec.md). That document is copied byte-for-byte from
+upstream revision `0aca8b748e6ecc23446fc690d2b66690b77fe0d3`.
 
-Runnable, self-verifying workflows for external steering and parallel
-fan-out/fan-in are in [`examples/`](examples/README.md).
+Tractor has four documented implementation choices around that contract:
+
+- Pipeline files may be JSON, YAML, or YML; inline documents use `--json` or
+  `--yaml`. YAML is a Tractor authoring extension decoded through the same
+  generated, closed schema as JSON. JSON field names and semantics remain
+  canonical.
+- Tractor's backend interface includes a synchronous binding-open callback.
+  The engine uses it to save a newly opened supervisor session before its turn
+  is dispatched, implementing the checkpoint guarantee without polling backend
+  state.
+- A supervisor briefing is idempotent, at-least-once input across a crash. A
+  successful supervisor turn records its exact session binding in
+  `briefed.json`; the same binding suppresses a resend. Missing, changed, or
+  inconclusive completion evidence resends the briefing. This accepts the
+  unavoidable duplicate-delivery window rather than risking a silently
+  unbriefed resumed session. Advisory file/render failures are recorded in the
+  supervisor's `errors.jsonl` because the upstream spec requires them to be
+  recorded but does not assign a wire artifact.
+- Codex's native strict-output API requires every declared root property to be
+  structurally required. The Codex adapter therefore presents optional root
+  properties as required nullable fields, removes returned nulls for fields
+  that were optional, and validates the result against the caller's unchanged
+  schema. Claude receives the caller schema unchanged.
+Runnable, self-verifying workflows for external steering, parallel
+fan-out/fan-in, YAML input, and live supervision are in
+[`examples/`](examples/README.md).
 
 ## Codex plugin and MCP server
 

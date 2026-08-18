@@ -6,7 +6,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,13 +28,14 @@ type HarnessBackend struct {
 	adapters map[string]HarnessAdapter
 	routes   map[string]string
 
-	mu           sync.Mutex
-	threads      map[string]ThreadBinding
-	bindingLocks map[string]*sync.Mutex
-	live         map[uint64]liveTurn
-	nextLiveID   uint64
+	mu            sync.Mutex
+	threads       map[string]ThreadBinding
+	bindingLocks  map[string]*sync.Mutex
+	bindingOpened BindingOpened
+	live          map[uint64]liveTurn
+	steerable     map[uint64]liveTurn
+	nextLiveID    uint64
 
-	nextSeq              uint64
 	currentPinnedToIndex bool
 }
 
@@ -65,6 +65,7 @@ func NewHarnessBackend(
 		threads:      make(map[string]ThreadBinding, len(bindings)),
 		bindingLocks: make(map[string]*sync.Mutex),
 		live:         make(map[uint64]liveTurn),
+		steerable:    make(map[uint64]liveTurn),
 	}
 	for key, binding := range bindings {
 		if strings.TrimSpace(key) == "" || !validBinding(binding) {
@@ -75,15 +76,9 @@ func NewHarnessBackend(
 		}
 		backend.threads[key] = binding
 	}
-	eventsRoot := filepath.Join(logsRoot, "events")
-	if err := os.MkdirAll(eventsRoot, 0o755); err != nil {
-		return nil, terminalError(fmt.Sprintf("create run log directory: %v", err))
+	if err := os.MkdirAll(logsRoot, 0o755); err != nil {
+		return nil, terminalError(fmt.Sprintf("create logs root: %v", err))
 	}
-	nextSeq, err := recoverEventSequence(eventsRoot)
-	if err != nil {
-		return nil, terminalError(fmt.Sprintf("recover run log sequence: %v", err))
-	}
-	backend.nextSeq = nextSeq
 	return backend, nil
 }
 
@@ -105,12 +100,15 @@ func (b *HarnessBackend) Run(turn CodergenTurn) (Outcome, *Error) {
 	if turn.Fidelity == FidelityNone {
 		key = noneThreadPrefix + turn.NodeID
 	}
+	lock := b.bindingLock(key)
+	lock.Lock()
+	defer lock.Unlock()
 	binding, err := b.prepareBinding(key, harnessName, adapter, turn)
 	if err != nil {
 		return Outcome{}, err
 	}
 
-	turnLog, liveID, err := b.startTurnLog(turn.NodeID, binding)
+	turnLog, liveID, err := b.startTurnLog(turn.NodeID, turn.RunLog, binding, true)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -142,6 +140,59 @@ func (b *HarnessBackend) Run(turn CodergenTurn) (Outcome, *Error) {
 	return decodeOutcome(validated)
 }
 
+// RunSupervisor executes one advisory turn on the supervisor's full session.
+func (b *HarnessBackend) RunSupervisor(turn SupervisorTurn) (Verdict, *Error) {
+	if err := ValidateSupervisorTurn(turn); err != nil {
+		return Verdict{}, err
+	}
+	validator, validationErr := NewResultValidator(turn.OutputSchema)
+	if validationErr != nil {
+		return Verdict{}, validationErr
+	}
+	harnessName, adapter, err := b.selectAdapter(turn.Provider)
+	if err != nil {
+		return Verdict{}, err
+	}
+	lock := b.bindingLock(turn.NodeID)
+	lock.Lock()
+	defer lock.Unlock()
+	binding, err := b.prepareSupervisorBinding(turn.NodeID, harnessName, adapter, turn)
+	if err != nil {
+		return Verdict{}, err
+	}
+
+	turnLog, liveID, err := b.startTurnLog(turn.NodeID, turn.RunLog, binding, false)
+	if err != nil {
+		return Verdict{}, err
+	}
+	result, adapterErr := adapter.RunTurn(RunTurnInput{
+		SessionID:       binding.SessionID,
+		Model:           turn.Model,
+		ReasoningEffort: turn.ReasoningEffort,
+		OutputSchema:    turn.OutputSchema,
+		Workdir:         turn.Workdir,
+		Parts:           turn.Parts,
+		Timeout:         turn.Timeout,
+	}, turnLog.writeEvent)
+	logErr := b.finishTurnLog(liveID, turnLog)
+
+	if adapterErr != nil {
+		return Verdict{}, adapterErr
+	}
+	if logErr != nil {
+		return Verdict{}, logErr
+	}
+	rawResult, marshalErr := json.Marshal(result)
+	if marshalErr != nil {
+		return Verdict{}, terminalError(fmt.Sprintf("encode harness result: %v", marshalErr))
+	}
+	validated, resultErr := validator.Validate(rawResult)
+	if resultErr != nil {
+		return Verdict{}, resultErr
+	}
+	return decodeVerdict(validated)
+}
+
 func (b *HarnessBackend) selectAdapter(provider string) (string, HarnessAdapter, *Error) {
 	harnessName, ok := b.routes[provider]
 	if !ok || strings.TrimSpace(harnessName) == "" {
@@ -160,17 +211,13 @@ func (b *HarnessBackend) prepareBinding(
 	adapter HarnessAdapter,
 	turn CodergenTurn,
 ) (ThreadBinding, *Error) {
-	lock := b.bindingLock(key)
-	lock.Lock()
-	defer lock.Unlock()
-
 	b.mu.Lock()
 	binding, exists := b.threads[key]
 	b.mu.Unlock()
+	if exists && binding.Harness != harnessName {
+		return ThreadBinding{}, terminalError("logical thread cannot change harness")
+	}
 	if exists && turn.Fidelity != FidelityNone {
-		if binding.Harness != harnessName {
-			return ThreadBinding{}, terminalError("logical thread cannot change harness")
-		}
 		if binding.Workdir == turn.Workdir {
 			if turn.Fidelity == FidelityCompacted {
 				if err := adapter.Compact(binding.SessionID, turn.Workdir); err != nil {
@@ -188,11 +235,65 @@ func (b *HarnessBackend) prepareBinding(
 	if strings.TrimSpace(sessionID) == "" {
 		return ThreadBinding{}, terminalError("harness returned an empty session ID")
 	}
+	newBinding := ThreadBinding{Harness: harnessName, SessionID: sessionID, Workdir: turn.Workdir}
+	if err := b.publishBinding(key, newBinding, binding, exists); err != nil {
+		return ThreadBinding{}, err
+	}
+	return newBinding, nil
+}
+
+func (b *HarnessBackend) prepareSupervisorBinding(
+	key string,
+	harnessName string,
+	adapter HarnessAdapter,
+	turn SupervisorTurn,
+) (ThreadBinding, *Error) {
+	b.mu.Lock()
+	binding, exists := b.threads[key]
+	b.mu.Unlock()
+	if exists {
+		if binding.Harness != harnessName {
+			return ThreadBinding{}, terminalError("logical thread cannot change harness")
+		}
+		if binding.Workdir != turn.Workdir {
+			return ThreadBinding{}, terminalError("supervisor thread cannot change workdir")
+		}
+		return binding, nil
+	}
+
+	sessionID, err := adapter.CreateSession(turn.Model, turn.Workdir)
+	if err != nil {
+		return ThreadBinding{}, err
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return ThreadBinding{}, terminalError("harness returned an empty session ID")
+	}
 	binding = ThreadBinding{Harness: harnessName, SessionID: sessionID, Workdir: turn.Workdir}
+	if err := b.publishBinding(key, binding, ThreadBinding{}, false); err != nil {
+		return ThreadBinding{}, err
+	}
+	return binding, nil
+}
+
+func (b *HarnessBackend) publishBinding(key string, binding, previous ThreadBinding, existed bool) *Error {
 	b.mu.Lock()
 	b.threads[key] = binding
+	callback := b.bindingOpened
 	b.mu.Unlock()
-	return binding, nil
+	if callback == nil {
+		return nil
+	}
+	if err := callback(key, binding); err != nil {
+		b.mu.Lock()
+		if existed {
+			b.threads[key] = previous
+		} else {
+			delete(b.threads, key)
+		}
+		b.mu.Unlock()
+		return err
+	}
+	return nil
 }
 
 func (b *HarnessBackend) bindingLock(key string) *sync.Mutex {
@@ -206,19 +307,27 @@ func (b *HarnessBackend) bindingLock(key string) *sync.Mutex {
 	return lock
 }
 
+// SetBindingOpened installs the synchronous binding-open callback. The engine
+// uses it to persist a fresh binding before the turn is dispatched.
+func (b *HarnessBackend) SetBindingOpened(callback BindingOpened) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.bindingOpened = callback
+}
+
 // Steer sends a best-effort instruction when exactly one turn is live.
 func (b *HarnessBackend) Steer(parts []ContentPart) SteerStatus {
 	b.mu.Lock()
-	if len(b.live) == 0 {
+	if len(b.steerable) == 0 {
 		b.mu.Unlock()
 		return SteerNotActive
 	}
-	if len(b.live) != 1 {
+	if len(b.steerable) != 1 {
 		b.mu.Unlock()
 		return SteerAmbiguousTarget
 	}
 	var target ThreadBinding
-	for _, turn := range b.live {
+	for _, turn := range b.steerable {
 		target = turn.binding
 	}
 	adapter := b.adapters[target.Harness]
@@ -280,28 +389,22 @@ func (l *turnLog) close() error {
 	return l.err
 }
 
-func (b *HarnessBackend) startTurnLog(nodeID string, binding ThreadBinding) (*turnLog, uint64, *Error) {
+func (b *HarnessBackend) startTurnLog(
+	nodeID string,
+	runLog string,
+	binding ThreadBinding,
+	steerable bool,
+) (*turnLog, uint64, *Error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.nextSeq++
-	seq := b.nextSeq
-	name := fmt.Sprintf("%06d-%s.jsonl", seq, nodeID)
-	relativePath := filepath.Join("events", name)
-	absolutePath := filepath.Join(b.logsRoot, relativePath)
-	file, err := os.OpenFile(absolutePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(runLog, os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return nil, 0, terminalError(fmt.Sprintf("create run log segment: %v", err))
+		return nil, 0, terminalError(fmt.Sprintf("open run log segment: %v", err))
 	}
-	entry := struct {
-		Seq    uint64 `json:"seq"`
-		NodeID string `json:"node_id"`
-		Path   string `json:"path"`
-		TS     string `json:"ts"`
-	}{Seq: seq, NodeID: nodeID, Path: relativePath, TS: time.Now().UTC().Format(time.RFC3339Nano)}
-	if err := appendJSONLine(filepath.Join(b.logsRoot, "events", "index.jsonl"), entry); err != nil {
+	relativePath, err := filepath.Rel(b.logsRoot, runLog)
+	if err != nil {
 		_ = file.Close()
-		_ = os.Remove(absolutePath)
-		return nil, 0, terminalError(fmt.Sprintf("append run log index: %v", err))
+		return nil, 0, terminalError(fmt.Sprintf("resolve run log segment: %v", err))
 	}
 
 	pinnedToIndex := b.currentPinnedToIndex || len(b.live) > 0
@@ -315,7 +418,11 @@ func (b *HarnessBackend) startTurnLog(nodeID string, binding ThreadBinding) (*tu
 	}
 	b.nextLiveID++
 	liveID := b.nextLiveID
-	b.live[liveID] = liveTurn{binding: binding}
+	live := liveTurn{binding: binding}
+	b.live[liveID] = live
+	if steerable {
+		b.steerable[liveID] = live
+	}
 	b.currentPinnedToIndex = pinnedToIndex
 	return &turnLog{file: file, nodeID: nodeID}, liveID, nil
 }
@@ -326,6 +433,7 @@ func (b *HarnessBackend) finishTurnLog(liveID uint64, log *turnLog) *Error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	delete(b.live, liveID)
+	delete(b.steerable, liveID)
 	if len(b.live) == 0 {
 		b.currentPinnedToIndex = false
 	}
@@ -333,29 +441,6 @@ func (b *HarnessBackend) finishTurnLog(liveID uint64, log *turnLog) *Error {
 		return terminalError(fmt.Sprintf("write run log segment: %v", closeErr))
 	}
 	return nil
-}
-
-func recoverEventSequence(eventsRoot string) (uint64, error) {
-	entries, err := os.ReadDir(eventsRoot)
-	if err != nil {
-		return 0, err
-	}
-	var highest uint64
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		dash := strings.IndexByte(name, '-')
-		if dash <= 0 || !strings.HasSuffix(name, ".jsonl") {
-			continue
-		}
-		sequence, parseErr := strconv.ParseUint(name[:dash], 10, 64)
-		if parseErr == nil && sequence > highest {
-			highest = sequence
-		}
-	}
-	return highest, nil
 }
 
 func (b *HarnessBackend) swapCurrent(target string) error {
@@ -374,19 +459,6 @@ func (b *HarnessBackend) swapCurrent(target string) error {
 	return nil
 }
 
-func appendJSONLine(path string, value any) error {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	encodeErr := json.NewEncoder(file).Encode(value)
-	closeErr := file.Close()
-	if encodeErr != nil {
-		return encodeErr
-	}
-	return closeErr
-}
-
 func decodeOutcome(result Result) (Outcome, *Error) {
 	notes, ok := result["notes"].(string)
 	if !ok {
@@ -401,6 +473,27 @@ func decodeOutcome(result Result) (Outcome, *Error) {
 		outcome.Next = value
 	}
 	return outcome, nil
+}
+
+func decodeVerdict(result Result) (Verdict, *Error) {
+	verdict, ok := result["verdict"].(string)
+	if !ok {
+		return Verdict{}, terminalError("harness result has no string verdict field")
+	}
+	value := Verdict{Verdict: verdict}
+	if target, exists := result["target"]; exists {
+		value.Target, ok = target.(string)
+		if !ok {
+			return Verdict{}, terminalError("harness result has a non-string target field")
+		}
+	}
+	if message, exists := result["message"]; exists {
+		value.Message, ok = message.(string)
+		if !ok {
+			return Verdict{}, terminalError("harness result has a non-string message field")
+		}
+	}
+	return value, nil
 }
 
 func copyAdapters(source map[string]HarnessAdapter) map[string]HarnessAdapter {

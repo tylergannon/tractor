@@ -114,7 +114,7 @@ func (s *runStore) appendTimeline(event timelineEvent) error {
 	return nil
 }
 
-func (s *runStore) appendSteering(stageDir string, parts []harness.ContentPart) error {
+func (s *runStore) appendSteering(stageDir string, parts []harness.ContentPart, origin string) error {
 	file, err := os.OpenFile(filepath.Join(stageDir, "steering.jsonl"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return fmt.Errorf("open steering audit: %w", err)
@@ -122,7 +122,8 @@ func (s *runStore) appendSteering(stageDir string, parts []harness.ContentPart) 
 	encodeErr := json.NewEncoder(file).Encode(struct {
 		Timestamp time.Time             `json:"timestamp"`
 		Parts     []harness.ContentPart `json:"parts"`
-	}{Timestamp: time.Now().UTC(), Parts: parts})
+		Origin    string                `json:"origin,omitempty"`
+	}{Timestamp: time.Now().UTC(), Parts: parts, Origin: origin})
 	closeErr := file.Close()
 	if encodeErr != nil {
 		return fmt.Errorf("append steering audit: %w", encodeErr)

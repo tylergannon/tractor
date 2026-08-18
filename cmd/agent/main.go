@@ -14,6 +14,7 @@ import (
 	"github.com/tylergannon/tractor/harness"
 	"github.com/tylergannon/tractor/harness/claude"
 	"github.com/tylergannon/tractor/harness/codex"
+	"github.com/tylergannon/tractor/internal/runlog"
 )
 
 const (
@@ -120,6 +121,14 @@ func run(args []string) error {
 	if backendErr != nil {
 		return backendErr
 	}
+	allocator, err := runlog.New(selection.logsRoot)
+	if err != nil {
+		return err
+	}
+	segment, err := allocator.Allocate("agent")
+	if err != nil {
+		return err
+	}
 
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
@@ -144,6 +153,7 @@ func run(args []string) error {
 		Fidelity:        harness.FidelityFull,
 		ThreadKey:       "agent",
 		Workdir:         workdir,
+		RunLog:          segment.Path,
 		Timeout:         selection.timeout,
 	})
 	if runErr != nil {

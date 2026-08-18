@@ -7,12 +7,8 @@
     "reasoning_effort": "low",
     "timeout": "90s"
   },
+  "start": "work",
   "nodes": [
-    {
-      "id": "start",
-      "type": "start",
-      "edges": [{ "to": "work" }]
-    },
     {
       "id": "work",
       "type": "codergen",
@@ -24,11 +20,8 @@
       "id": "verify",
       "type": "tool",
       "tool_command": "test \"$(cat steering-received.txt)\" = TRACTOR_STEERING_RECEIVED",
-      "edges": [{ "to": "exit" }]
-    },
-    {
-      "id": "exit",
-      "type": "exit"
+
+      "on_success": "success"
     }
   ]
 }
