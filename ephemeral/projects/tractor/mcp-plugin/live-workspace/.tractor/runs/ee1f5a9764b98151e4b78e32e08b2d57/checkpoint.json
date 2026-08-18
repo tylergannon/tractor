@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-08-18T00:38:02.358017Z",
+  "current_node": "done",
+  "next_node": "",
+  "completed_nodes": [
+    "start"
+  ],
+  "node_visits": {
+    "start": 1
+  },
+  "node_attempts": {
+    "start": 1
+  },
+  "seq": 1,
+  "retry_visit": false,
+  "last_stage": "start",
+  "last_response": "run started",
+  "sessions": {}
+}
