@@ -1,0 +1,8 @@
+{
+  "extends": ["recommended"],
+  "ignores": ["src/lib/components/ui/**", "src/lib/hooks/**"],
+  "rules": {
+    "svelte/block-lang": ["warn", { "script": "ts" }],
+    "svelte/no-unused-class-name": "off"
+  }
+}

@@ -1,0 +1,29 @@
+allowBuilds:
+  esbuild: true
+  sharp: true
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.9
+  vite-plus: 0.2.9
+minimumReleaseAgeExclude:
+  - "@rsvelte/lint@0.10.16"
+  - "@rsvelte/svelte-check@0.5.19"
+  - "@rsvelte/vite-plugin-svelte@0.5.2"
+  - "@rsvelte/lint-darwin-arm64@0.10.16"
+  - "@rsvelte/lint-darwin-x64@0.10.16"
+  - "@rsvelte/lint-linux-arm64-gnu@0.10.16"
+  - "@rsvelte/lint-linux-x64-gnu@0.10.16"
+  - "@rsvelte/lint-win32-x64-msvc@0.10.16"
+  - "@rsvelte/svelte-check-darwin-arm64@0.5.19"
+  - "@rsvelte/svelte-check-darwin-x64@0.5.19"
+  - "@rsvelte/svelte-check-linux-arm64-gnu@0.5.19"
+  - "@rsvelte/svelte-check-linux-x64-gnu@0.5.19"
+  - "@rsvelte/svelte-check-win32-x64-msvc@0.5.19"
+overrides:
+  "@sveltejs/vite-plugin-svelte": "npm:@rsvelte/vite-plugin-svelte@^0.5.2"
+  vite: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    "@sveltejs/vite-plugin-svelte": "*"
+    vite: "*"

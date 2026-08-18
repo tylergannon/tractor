@@ -1,0 +1,56 @@
+{
+  "name": "tractor-docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "check:astro": "astro check",
+    "format:rsvelte": "rsvelte-fmt --no-native-js --no-native-css src/components/InstallPrompt.svelte src/lib/components/ui/button",
+    "format:rsvelte:check": "rsvelte-fmt --no-native-js --no-native-css --check src/components/InstallPrompt.svelte src/lib/components/ui/button",
+    "lint:rsvelte": "rsvelte-lint --max-warnings 0 src/",
+    "check:rsvelte": "rsvelte-check --tsgo --tsconfig tsconfig.json --fail-on-warnings",
+    "check:preview": "astro build && node scripts/verify-preview.ts",
+    "verify": "vp check && vp run format:rsvelte:check && vp run lint:rsvelte && vp run check:rsvelte && vp run check:astro && vp run check:preview"
+  },
+  "dependencies": {
+    "@astrojs/svelte": "^9.0.1",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/newsreader": "^5.2.8",
+    "@iconify-json/lucide": "^1.2.123",
+    "@lucide/svelte": "^1.31.0",
+    "astro": "^7.2.2",
+    "astro-icon": "^1.1.5",
+    "clsx": "^2.1.1",
+    "shadcn-svelte": "^1.5.0",
+    "svelte": "^5.56.9",
+    "tailwind-merge": "^3.6.0",
+    "tailwind-variants": "^3.3.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@rsvelte/fmt": "^0.7.11",
+    "@rsvelte/lint": "^0.10.16",
+    "@rsvelte/svelte-check": "^0.5.19",
+    "@rsvelte/vite-plugin-svelte": "^0.5.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "11.22.0",
+      "onFail": "download"
+    }
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}
