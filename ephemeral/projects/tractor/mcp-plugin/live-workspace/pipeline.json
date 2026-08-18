@@ -1,0 +1,14 @@
+{
+  "name": "mcp-live-proof",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start",
+      "edges": [{"to": "done"}]
+    },
+    {
+      "id": "done",
+      "type": "exit"
+    }
+  ]
+}

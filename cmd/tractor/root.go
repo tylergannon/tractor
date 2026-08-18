@@ -31,7 +31,7 @@ func newRootCommand() *cobra.Command {
 		SilenceUsage:      true,
 		CompletionOptions: cobra.CompletionOptions{DisableDefaultCmd: true},
 	}
-	root.AddCommand(newValidateCommand(), newRunCommand(), newPrintSchemaCommand())
+	root.AddCommand(newValidateCommand(), newRunCommand(), newPrintSchemaCommand(), newMCPCommand())
 	return root
 }
 
