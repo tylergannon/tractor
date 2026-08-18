@@ -73,3 +73,7 @@ requests a cooperative stop and then force-stops the run's process group within
 its bounded shutdown window. Tool commands receive the cooperative stop through
 Tractor's runtime; processes that deliberately detach from Tractor's process
 groups are outside this guarantee.
+
+## License
+
+Tractor is available under the [MIT License](LICENSE).
