@@ -8,7 +8,7 @@
 
 ## 1. Executive Summary
 
-The Antigravity (`agy`) HarnessAdapter provides a solid, fully operational 90–95% integration. It correctly adapts the native `agy` CLI to drive Gemini models through Tractor workflows. 
+The Antigravity (`agy`) HarnessAdapter provides a solid, fully operational 90–95% integration. It correctly adapts the native `agy` CLI to drive Gemini models through Tractor workflows.
 
 Validation confirmed:
 - Live graph execution through `go run ./cmd/tractor run` completed with status `COMPLETED` (exit code 0).
