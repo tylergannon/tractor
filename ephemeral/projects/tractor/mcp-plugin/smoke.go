@@ -28,6 +28,10 @@ type pluginConfig struct {
 	} `json:"mcpServers"`
 }
 
+type pluginManifest struct {
+	Version string `json:"version"`
+}
+
 type schemaOutput struct {
 	Schema string `json:"schema"`
 }
@@ -83,6 +87,14 @@ func run() error {
 	if err := json.Unmarshal(rawConfig, &config); err != nil {
 		return err
 	}
+	rawManifest, err := os.ReadFile(filepath.Join(repository, ".codex-plugin", "plugin.json"))
+	if err != nil {
+		return err
+	}
+	var manifest pluginManifest
+	if err := json.Unmarshal(rawManifest, &manifest); err != nil {
+		return err
+	}
 	serverConfig, ok := config.Servers["tractor"]
 	if !ok {
 		return errors.New(".mcp.json has no tractor server")
@@ -112,6 +124,9 @@ func run() error {
 	initialized, err := mcpClient.Initialize(ctx, initialize)
 	if err != nil {
 		return err
+	}
+	if initialized.ServerInfo.Version != manifest.Version {
+		return fmt.Errorf("MCP server version %q differs from plugin version %q", initialized.ServerInfo.Version, manifest.Version)
 	}
 	listed, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
@@ -161,9 +176,15 @@ func run() error {
 	if validation.IsError {
 		return fmt.Errorf("validation failed: %#v", validation.Content)
 	}
+	logsRoot, err := os.MkdirTemp("", "tractor-mcp-live-proof-")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(logsRoot) }()
 	startedResult, err := call(ctx, mcpClient, "start_run", map[string]any{
 		"pipeline_path": "pipeline.json",
 		"workdir":       workdir,
+		"logs_root":     logsRoot,
 	})
 	if err != nil {
 		return err
@@ -198,6 +219,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if checkpoint.CurrentNode != status.CurrentNode || checkpoint.NextNode != status.NextNode {
+		return fmt.Errorf("checkpoint does not match final run status: checkpoint=%#v status=%#v", checkpoint, status)
+	}
 
 	result := proof{
 		PluginCommand:     serverConfig.Command + " " + fmt.Sprint(serverConfig.Args),
@@ -214,7 +238,7 @@ func run() error {
 		ExitCode:          *status.ExitCode,
 		CurrentNode:       status.CurrentNode,
 		NextNode:          status.NextNode,
-		CheckpointExists:  checkpoint.CurrentNode == "done" && checkpoint.NextNode == "",
+		CheckpointExists:  true,
 	}
 	encoded, err := json.MarshalIndent(result, "", "  ")
 	if err != nil {

@@ -8,20 +8,24 @@ Repository: https://github.com/tylergannon/tractor
 
 - Codex with plugin marketplace support.
 - Go 1.26 or newer on the machine running the plugin.
-- SSH access to the GitHub repository while it is private.
+- The Go binary install directory on the `PATH` inherited by Codex.
 
 ## Install in Codex
 
 ```sh
+go install github.com/tylergannon/tractor/cmd/tractor@latest
 codex plugin marketplace add tylergannon/tractor
 codex plugin add tractor@tractor
 ```
 
-Start a new Codex task after installation so the plugin's MCP server is loaded.
+`go install` writes to `GOBIN`, or to `GOPATH/bin` when `GOBIN` is unset. Rerun
+the same command to update Tractor. Start a new Codex task after installation or
+update so the plugin's MCP server is loaded.
 
 ## MCP server
 
-The plugin starts `./scripts/tractor-mcp` from its installed snapshot. The launcher builds that snapshot and speaks MCP over stdin and stdout. It does not require a separately installed `tractor` binary.
+The plugin runs the installed binary as `tractor mcp` and speaks MCP over stdin
+and stdout.
 
 The server uses `github.com/mark3labs/mcp-go`. All tools are deferred, so their definitions are loaded only when Codex needs them. Pipeline arguments are file paths rather than embedded graph schemas.
 
@@ -44,16 +48,10 @@ Runs belong to the MCP stdio session. Closing the session requests a cooperative
 
 ## Direct stdio use
 
-From a source checkout:
-
-```sh
-./scripts/tractor-mcp
-```
-
 From an installed Tractor binary:
 
 ```sh
 tractor mcp
 ```
 
-Both commands reserve stdout for MCP protocol messages. Run output and diagnostics are written to the run paths returned by `start_run`.
+The command reserves stdout for MCP protocol messages. Run output and diagnostics are written to the run paths returned by `start_run`.
