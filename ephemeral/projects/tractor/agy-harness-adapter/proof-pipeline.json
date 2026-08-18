@@ -1,0 +1,30 @@
+{
+  "name": "agy-proof-min",
+  "goal": "Prove that Tractor can route a real workspace task through agy to Gemini",
+  "defaults": {
+    "llm_model": "gemini-3.7-flash-low",
+    "reasoning_effort": "low",
+    "timeout": "3m"
+  },
+  "start": "write",
+  "nodes": [
+    {
+      "id": "write",
+      "type": "codergen",
+      "prompt": "Create a file named proof.txt in the workspace root containing exactly one line: AGY_PROOF_OK (a single trailing newline, no other content).",
+      "edges": [
+        {
+          "to": "check",
+          "condition": "The file has been written"
+        }
+      ]
+    },
+    {
+      "id": "check",
+      "type": "tool",
+      "tool_command": "test \"$(cat proof.txt)\" = AGY_PROOF_OK && test \"$(wc -l < proof.txt | tr -d ' ')\" = 1",
+      "on_success": "success",
+      "on_error": "failure"
+    }
+  ]
+}

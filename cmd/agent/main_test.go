@@ -49,7 +49,7 @@ func TestResolveSelection(t *testing.T) {
 }
 
 func TestHarnessForProvider(t *testing.T) {
-	for provider, want := range map[string]string{"openai": "codex", "anthropic": "claude"} {
+	for provider, want := range map[string]string{"openai": "codex", "anthropic": "claude", "gemini": "agy"} {
 		got, err := harnessForProvider(provider)
 		if err != nil {
 			t.Fatal(err)
