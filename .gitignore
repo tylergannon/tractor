@@ -1,2 +1,6 @@
 .DS_Store
 /tractor
+/node_modules
+/dist
+/.astro
+/.svelte-check

@@ -1,0 +1,62 @@
+---
+import { Icon } from "astro-icon/components";
+import Footer from "../components/Footer.astro";
+import Header from "../components/Header.astro";
+import InstallPrompt from "../components/InstallPrompt.svelte";
+import Layout from "../layouts/Layout.astro";
+
+const base = `${import.meta.env.BASE_URL.replace(/\/$/, "")}/`;
+---
+
+<Layout
+  title="Tractor · Agent pipelines for Codex"
+  description="Install Tractor in Codex and run typed, steerable multi-agent pipelines."
+>
+  <Header />
+  <main>
+    <section class="shell flex min-h-[calc(100vh-4rem)] items-center py-16 sm:py-24">
+      <div class="w-full">
+        <div class="mb-12 flex items-center gap-3">
+          <span class="bg-primary size-2 animate-pulse rounded-full"></span>
+          <p class="eyebrow">Agent orchestration, without the glue</p>
+        </div>
+
+        <h1 class="max-w-5xl font-serif text-[clamp(4rem,12vw,9rem)] leading-[0.78] font-medium tracking-[-0.065em]">
+          Put your agents<br /><em class="text-primary font-normal">in motion.</em>
+        </h1>
+
+        <div class="mt-12 grid gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
+          <div class="max-w-md space-y-3 text-lg leading-8">
+            <p>Tractor runs typed, steerable agent pipelines inside Codex.</p>
+            <p class="text-muted-foreground">Tell your agent to install it. Start a new task. That’s it.</p>
+          </div>
+          <InstallPrompt client:load />
+        </div>
+
+        <div class="border-border mt-14 grid border-y sm:grid-cols-2">
+          <a
+            class="group border-border hover:bg-muted/40 flex items-center justify-between gap-4 border-b px-1 py-6 transition-colors sm:border-r sm:border-b-0 sm:px-6"
+            href={`${base}docs/authoring-pipelines/`}
+          >
+            <span>
+              <span class="eyebrow block">01 / Build</span>
+              <span class="mt-2 block text-lg font-semibold">Author a pipeline</span>
+            </span>
+            <Icon name="lucide:arrow-up-right" class="text-muted-foreground group-hover:text-primary size-5 transition-colors" aria-hidden="true" />
+          </a>
+          <a
+            class="group hover:bg-muted/40 flex items-center justify-between gap-4 px-1 py-6 transition-colors sm:px-6"
+            href={`${base}docs/tractor-vs-attractor/`}
+          >
+            <span>
+              <span class="eyebrow block">02 / Understand</span>
+              <span class="mt-2 block text-lg font-semibold">Compare the specifications</span>
+            </span>
+            <Icon name="lucide:arrow-up-right" class="text-muted-foreground group-hover:text-primary size-5 transition-colors" aria-hidden="true" />
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</Layout>

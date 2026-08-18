@@ -1,0 +1,247 @@
+@import "tailwindcss" source(none);
+@source "../";
+@import "shadcn-svelte/tailwind.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/newsreader";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --font-sans: "Inter Variable", sans-serif;
+  --font-serif: "Newsreader Variable", Georgia, serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --background: oklch(0.135 0.01 55);
+    --foreground: oklch(0.94 0.016 78);
+    --card: oklch(0.175 0.014 55);
+    --card-foreground: oklch(0.94 0.016 78);
+    --popover: oklch(0.175 0.014 55);
+    --popover-foreground: oklch(0.94 0.016 78);
+    --primary: oklch(0.76 0.145 63);
+    --primary-foreground: oklch(0.15 0.016 55);
+    --secondary: oklch(0.225 0.018 55);
+    --secondary-foreground: oklch(0.93 0.015 78);
+    --muted: oklch(0.205 0.015 55);
+    --muted-foreground: oklch(0.69 0.025 73);
+    --accent: oklch(0.26 0.04 57);
+    --accent-foreground: oklch(0.94 0.016 78);
+    --destructive: oklch(0.67 0.19 25);
+    --border: oklch(0.94 0.02 78 / 0.12);
+    --input: oklch(0.94 0.02 78 / 0.16);
+    --ring: oklch(0.76 0.145 63);
+    --radius: 0.65rem;
+  }
+
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 7rem;
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100vh;
+    background-image:
+      linear-gradient(to right, oklch(0.95 0.02 75 / 0.025) 1px, transparent 1px),
+      linear-gradient(to bottom, oklch(0.95 0.02 75 / 0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  ::selection {
+    color: var(--primary-foreground);
+    background: var(--primary);
+  }
+
+  code,
+  pre {
+    font-family: var(--font-mono);
+  }
+}
+
+@layer components {
+  .shell {
+    width: min(100% - 2rem, 82rem);
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    @apply text-primary font-mono text-xs font-semibold tracking-[0.2em] uppercase;
+  }
+
+  .surface {
+    background: linear-gradient(145deg, oklch(0.205 0.018 55 / 0.96), oklch(0.16 0.012 55 / 0.96));
+    box-shadow:
+      inset 0 1px oklch(1 0 0 / 0.05),
+      0 24px 80px oklch(0 0 0 / 0.22);
+    @apply border-border border;
+  }
+
+  .doc-prose {
+    color: oklch(0.83 0.018 75);
+    font-size: 1rem;
+    line-height: 1.78;
+  }
+
+  .doc-prose > :first-child {
+    margin-top: 0;
+  }
+
+  .doc-prose h2,
+  .doc-prose h3 {
+    color: var(--foreground);
+    font-family: var(--font-serif);
+    font-weight: 560;
+    letter-spacing: -0.025em;
+    scroll-margin-top: 7rem;
+  }
+
+  .doc-prose h2 {
+    margin-top: 4.5rem;
+    margin-bottom: 1rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    font-size: clamp(1.9rem, 4vw, 2.45rem);
+    line-height: 1.08;
+  }
+
+  .doc-prose h3 {
+    margin-top: 2.5rem;
+    margin-bottom: 0.75rem;
+    font-size: 1.45rem;
+    line-height: 1.2;
+  }
+
+  .doc-prose p,
+  .doc-prose ul,
+  .doc-prose ol,
+  .doc-prose table,
+  .doc-prose pre,
+  .doc-prose blockquote {
+    margin-block: 1.25rem;
+  }
+
+  .doc-prose ul,
+  .doc-prose ol {
+    padding-left: 1.35rem;
+  }
+
+  .doc-prose ul {
+    list-style: square;
+  }
+
+  .doc-prose ol {
+    list-style: decimal;
+  }
+
+  .doc-prose li {
+    padding-left: 0.35rem;
+    margin-block: 0.45rem;
+  }
+
+  .doc-prose li::marker {
+    color: var(--primary);
+  }
+
+  .doc-prose a {
+    color: oklch(0.83 0.13 67);
+    text-decoration: underline;
+    text-decoration-color: oklch(0.83 0.13 67 / 0.4);
+    text-underline-offset: 0.2em;
+  }
+
+  .doc-prose a:hover {
+    text-decoration-color: currentColor;
+  }
+
+  .doc-prose :not(pre) > code {
+    color: oklch(0.86 0.11 65);
+    background: oklch(0.24 0.024 55);
+    border: 1px solid var(--border);
+    border-radius: 0.3rem;
+    padding: 0.13rem 0.35rem;
+    font-size: 0.88em;
+  }
+
+  .doc-prose pre {
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 0.8rem;
+    background: oklch(0.105 0.008 55) !important;
+    padding: 1.25rem;
+    box-shadow: inset 0 1px oklch(1 0 0 / 0.04);
+    font-size: 0.84rem;
+    line-height: 1.65;
+  }
+
+  .doc-prose blockquote {
+    border-left: 3px solid var(--primary);
+    border-radius: 0 0.5rem 0.5rem 0;
+    background: oklch(0.22 0.025 58 / 0.6);
+    padding: 0.9rem 1.1rem;
+    color: var(--foreground);
+  }
+
+  .doc-prose table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+
+  .doc-prose th,
+  .doc-prose td {
+    min-width: 9rem;
+    border-bottom: 1px solid var(--border);
+    padding: 0.8rem 1rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .doc-prose th {
+    color: var(--foreground);
+    background: oklch(0.2 0.017 55);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .doc-prose strong {
+    color: var(--foreground);
+    font-weight: 650;
+  }
+}

@@ -1,0 +1,5 @@
+decision: Use one schema-validated Astro build-time content collection for documentation entries, with one dynamic static route and shared presentation shell; reserve bespoke page markup for the intentionally simple home page.
+decision: Pin the published spec comparison to strongdm/attractor commit fb57a55ed97372a27ac90102f436947e29f48426 while linking Tractor's current normative docs/spec.md.
+decision: Deploy the project site at https://tylergannon.github.io/tractor/ with Astro site/base configuration and the GitHub Pages Actions artifact flow.
+friction: The template's repository-wide rsvelte formatter scanned Tractor's pre-existing Markdown, JSON, and proof artifacts -> scope rsvelte formatting to the Svelte component directories when adopting the template inside a mixed Go repository.
+friction: Astro exposed the configured GitHub Pages base as /tractor without a trailing slash, and direct interpolation produced /tractordocs links -> normalize BASE_URL to one trailing slash before composing internal links.
