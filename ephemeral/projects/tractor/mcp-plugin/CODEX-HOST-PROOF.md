@@ -4,11 +4,11 @@ Date: 2026-08-17
 
 Codex version: `codex-cli 0.147.0`
 
-Codex task: `01a0124d-94de-7460-92b0-00902f36b780`
+Codex task: `01a0124f-3a6e-7653-882d-64d9d4e1a831`
 
 Installed plugin: `tractor@personal`, version
-`0.1.0+codex.20260818003702`, enabled, with cached package at
-`/Users/tyler/.codex/plugins/cache/personal/tractor/0.1.0+codex.20260818003702`.
+`0.1.0+codex.20260818003931`, enabled, with cached package at
+`/Users/tyler/.codex/plugins/cache/personal/tractor/0.1.0+codex.20260818003931`.
 
 ## Command
 
@@ -33,10 +33,10 @@ shell. It emitted actual `mcp_tool_call` events with server `tractor` for
 
 ```json
 {
-  "run_id": "ee1f5a9764b98151e4b78e32e08b2d57",
-  "pid": 77078,
+  "run_id": "4789faf4f3e16334626a98b99be6c8d0",
+  "pid": 78973,
   "status": "RUNNING",
-  "logs_root": "/Users/tyler/src/.worktrees/tractor/mcp-plugin/ephemeral/projects/tractor/mcp-plugin/live-workspace/.tractor/runs/ee1f5a9764b98151e4b78e32e08b2d57"
+  "logs_root": "/Users/tyler/src/.worktrees/tractor/mcp-plugin/ephemeral/projects/tractor/mcp-plugin/live-workspace/.tractor/runs/4789faf4f3e16334626a98b99be6c8d0"
 }
 ```
 
@@ -44,8 +44,8 @@ shell. It emitted actual `mcp_tool_call` events with server `tractor` for
 
 ```json
 {
-  "run_id": "ee1f5a9764b98151e4b78e32e08b2d57",
-  "pid": 77078,
+  "run_id": "4789faf4f3e16334626a98b99be6c8d0",
+  "pid": 78973,
   "status": "COMPLETED",
   "exit_code": 0,
   "current_node": "done",
@@ -59,8 +59,8 @@ The task's final result was:
 ```json
 {
   "valid": true,
-  "run_id": "ee1f5a9764b98151e4b78e32e08b2d57",
-  "pid": 77078,
+  "run_id": "4789faf4f3e16334626a98b99be6c8d0",
+  "pid": 78973,
   "status": "COMPLETED",
   "exit_code": 0,
   "current_node": "done",
@@ -69,7 +69,7 @@ The task's final result was:
 ```
 
 The resulting checkpoint exists and has SHA-256
-`b22ed7089e7ec40a24a2bbb62bbae1dc02021fd178a2aa8d568b3cc4f32ad792`.
+`6c3a74b502ec14f257c93e3d78e8a3aab7f73d65f1bff2ac937d2f8929e14438`.
 It records `current_node: "done"`, an empty `next_node`, and one visit and
 attempt for `start`.
 
