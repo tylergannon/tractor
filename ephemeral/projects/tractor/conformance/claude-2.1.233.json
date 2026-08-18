@@ -3,51 +3,57 @@
   "native_harness": "claude",
   "native_version": "2.1.233 (Claude Code)",
   "model": "fable",
-  "started_at": "2026-08-17T03:12:03.911476Z",
-  "finished_at": "2026-08-17T03:14:57.104252Z",
+  "started_at": "2026-08-18T00:56:38.004423Z",
+  "finished_at": "2026-08-18T00:59:53.217053Z",
   "passed": true,
   "scenarios": [
     {
       "name": "real_workspace_turn",
       "passed": true,
-      "duration": 11555000000,
-      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-4235487335/01-real_workspace_turn"
+      "duration": 11669000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/01-real_workspace_turn"
     },
     {
       "name": "continuation_and_reconstruction",
       "passed": true,
-      "duration": 10016000000,
-      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-4235487335/02-continuation_and_reconstruction"
+      "duration": 10068000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/02-continuation_and_reconstruction"
     },
     {
       "name": "isolation_and_serialization",
       "passed": true,
-      "duration": 28435000000,
-      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-4235487335/03-isolation_and_serialization"
+      "duration": 31690000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/03-isolation_and_serialization"
     },
     {
       "name": "invalid_inputs_and_public_errors",
       "passed": true,
-      "duration": 2986000000,
-      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-4235487335/04-invalid_inputs_and_public_errors"
+      "duration": 2821000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/04-invalid_inputs_and_public_errors"
     },
     {
       "name": "steering",
       "passed": true,
-      "duration": 28620000000,
-      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-4235487335/05-steering"
+      "duration": 29003000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/05-steering"
     },
     {
       "name": "interruption_and_timeout",
       "passed": true,
-      "duration": 27621000000,
-      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-4235487335/06-interruption_and_timeout"
+      "duration": 30251000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/06-interruption_and_timeout"
     },
     {
       "name": "compaction",
       "passed": true,
-      "duration": 63961000000,
-      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-4235487335/07-compaction"
+      "duration": 70794000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/07-compaction"
+    },
+    {
+      "name": "backend_supervisor",
+      "passed": true,
+      "duration": 8921000000,
+      "workspace": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-harness-conformance-879938834/08-backend_supervisor"
     }
   ]
 }

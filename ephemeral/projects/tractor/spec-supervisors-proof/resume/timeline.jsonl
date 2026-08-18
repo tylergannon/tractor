@@ -1,0 +1,29 @@
+{"id":"e58e72353140b9899cade7c214723c39","name":"supervisor-resume-proof","ts":"2026-08-18T01:15:51.924205Z","type":"PipelineStarted"}
+{"node_id":"prepare","ts":"2026-08-18T01:15:51.924412Z","type":"CheckpointSaved"}
+{"index":1,"name":"prepare","ts":"2026-08-18T01:15:51.924576Z","type":"StageStarted"}
+{"duration":"3.4415ms","index":1,"name":"prepare","next":"work","ts":"2026-08-18T01:15:51.928017Z","type":"StageCompleted"}
+{"node_id":"prepare","ts":"2026-08-18T01:15:51.928223Z","type":"CheckpointSaved"}
+{"index":2,"name":"work","ts":"2026-08-18T01:15:51.928282Z","type":"StageStarted"}
+{"batch":"/tmp/tractor-supervisor-resume-logs.GMI9De/supervisors/coach/inbox.000001.jsonl","count":1,"supervisor":"coach","ts":"2026-08-18T01:15:53.928117Z","type":"SupervisorFlushed"}
+{"node_id":"coach","ts":"2026-08-18T01:15:53.929492Z","type":"CheckpointSaved"}
+{"supervisor":"coach","ts":"2026-08-18T01:15:58.81093Z","type":"SupervisorVerdict","verdict":"ok"}
+{"count":0,"supervisor":"coach","ts":"2026-08-18T01:15:59.927023Z","type":"SupervisorFlushed"}
+{"supervisor":"coach","ts":"2026-08-18T01:16:04.399208Z","type":"SupervisorVerdict","verdict":"ok"}
+{"count":0,"supervisor":"coach","ts":"2026-08-18T01:16:05.926863Z","type":"SupervisorFlushed"}
+{"supervisor":"coach","ts":"2026-08-18T01:16:09.999866Z","type":"SupervisorVerdict","verdict":"ok"}
+{"error":"turn was interrupted","index":2,"name":"work","ts":"2026-08-18T01:16:10.212584Z","type":"StageFailed","will_retry":false}
+{"node_id":"work","ts":"2026-08-18T01:16:10.213128Z","type":"CheckpointSaved"}
+{"duration":"18.289672334s","error":"turn was interrupted","ts":"2026-08-18T01:16:10.2132Z","type":"PipelineFailed"}
+{"id":"e58e72353140b9899cade7c214723c39","name":"supervisor-resume-proof","ts":"2026-08-18T01:16:26.115988Z","type":"PipelineStarted"}
+{"index":3,"name":"work","ts":"2026-08-18T01:16:26.116293Z","type":"StageStarted"}
+{"batch":"/tmp/tractor-supervisor-resume-logs.GMI9De/supervisors/coach/inbox.000002.jsonl","count":1,"supervisor":"coach","ts":"2026-08-18T01:16:28.11874Z","type":"SupervisorFlushed"}
+{"supervisor":"coach","ts":"2026-08-18T01:16:32.387977Z","type":"SupervisorVerdict","verdict":"ok"}
+{"count":0,"supervisor":"coach","ts":"2026-08-18T01:16:34.118696Z","type":"SupervisorFlushed"}
+{"supervisor":"coach","ts":"2026-08-18T01:16:38.399233Z","type":"SupervisorVerdict","verdict":"ok"}
+{"count":0,"supervisor":"coach","ts":"2026-08-18T01:16:40.118692Z","type":"SupervisorFlushed"}
+{"supervisor":"coach","ts":"2026-08-18T01:16:44.441242Z","type":"SupervisorVerdict","verdict":"ok"}
+{"count":0,"supervisor":"coach","ts":"2026-08-18T01:16:46.117906Z","type":"SupervisorFlushed"}
+{"duration":"21.638084291s","index":3,"name":"work","next":"success","ts":"2026-08-18T01:16:47.753584Z","type":"StageCompleted"}
+{"node_id":"work","ts":"2026-08-18T01:16:47.753935Z","type":"CheckpointSaved"}
+{"supervisor":"coach","ts":"2026-08-18T01:16:48.312382Z","type":"SupervisorVerdict","verdict":"error"}
+{"duration":"22.19731225s","ts":"2026-08-18T01:16:48.312478Z","type":"PipelineCompleted"}

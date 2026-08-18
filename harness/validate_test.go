@@ -71,6 +71,7 @@ func TestValidateCodergenTurnFidelity(t *testing.T) {
 		Fidelity:        FidelityFull,
 		ThreadKey:       "implement",
 		Workdir:         t.TempDir(),
+		RunLog:          "run.jsonl",
 	}
 	if err := ValidateCodergenTurn(turn); err != nil {
 		t.Fatalf("ValidateCodergenTurn() error = %v", err)
@@ -86,4 +87,22 @@ func TestValidateCodergenTurnFidelity(t *testing.T) {
 	assertTerminalError(t, ValidateCodergenTurn(turn))
 	turn.Fidelity = FidelityMode("unknown")
 	assertTerminalError(t, ValidateCodergenTurn(turn))
+}
+
+func TestValidateSupervisorTurn(t *testing.T) {
+	turn := SupervisorTurn{
+		NodeID:          "coach",
+		Parts:           []ContentPart{{Type: ContentPartText, Text: "review"}},
+		OutputSchema:    json.RawMessage(`{"type":"object"}`),
+		Model:           "model",
+		Provider:        "provider",
+		ReasoningEffort: "medium",
+		Workdir:         t.TempDir(),
+		RunLog:          "run.jsonl",
+	}
+	if err := ValidateSupervisorTurn(turn); err != nil {
+		t.Fatalf("ValidateSupervisorTurn() error = %v", err)
+	}
+	turn.RunLog = ""
+	assertTerminalError(t, ValidateSupervisorTurn(turn))
 }

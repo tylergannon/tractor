@@ -21,6 +21,7 @@ import (
 	"github.com/tylergannon/tractor/harness"
 	"github.com/tylergannon/tractor/harness/claude"
 	"github.com/tylergannon/tractor/harness/codex"
+	"github.com/tylergannon/tractor/internal/runlog"
 )
 
 const (
@@ -155,6 +156,7 @@ func run(args []string) error {
 		{"steering", scenarioSteering},
 		{"interruption_and_timeout", scenarioInterruption},
 		{"compaction", scenarioCompaction},
+		{"backend_supervisor", scenarioBackendSupervisor},
 	}
 	root, err := os.MkdirTemp("", "tractor-harness-conformance-")
 	if err != nil {
@@ -658,6 +660,110 @@ func scenarioCompaction(factory *adapterFactory, workdir string) error {
 	unknownErr := a.Compact(uuidLike(), workdir)
 	if err := requirePublicError("unknown compact", unknownErr); err != nil {
 		return err
+	}
+	return nil
+}
+
+func scenarioBackendSupervisor(factory *adapterFactory, workdir string) error {
+	provider := "openai"
+	if factory.name == "claude" {
+		provider = "anthropic"
+	}
+	logsRoot := filepath.Join(workdir, "logs")
+	backend, backendErr := harness.NewHarnessBackend(
+		logsRoot,
+		map[string]harness.HarnessAdapter{factory.name: factory.create()},
+		map[string]string{provider: factory.name},
+		nil,
+	)
+	if backendErr != nil {
+		return fmt.Errorf("create backend: %w", backendErr)
+	}
+	allocator, err := runlog.New(logsRoot)
+	if err != nil {
+		return err
+	}
+
+	const nodeID = "supervisor"
+	const target = "build"
+	message := "inspect-failure-" + token()
+	schema := objectSchema(map[string]any{
+		"verdict": map[string]any{
+			"type":        "string",
+			"enum":        []string{"ok", "steer"},
+			"description": "Use steer only to coach the named target; otherwise use ok.",
+		},
+		"target": map[string]any{
+			"type":        "string",
+			"enum":        []string{target},
+			"description": "Required when verdict is steer.",
+		},
+		"message": map[string]any{
+			"type":        "string",
+			"description": "Required and delivered verbatim when verdict is steer.",
+		},
+	}, []string{"verdict"})
+
+	run := func(prompt string) (harness.Verdict, string, error) {
+		segment, allocateErr := allocator.Allocate(nodeID)
+		if allocateErr != nil {
+			return harness.Verdict{}, "", allocateErr
+		}
+		verdict, runErr := backend.RunSupervisor(harness.SupervisorTurn{
+			NodeID:          nodeID,
+			Parts:           textParts(prompt),
+			OutputSchema:    schema,
+			Model:           factory.model,
+			Provider:        provider,
+			ReasoningEffort: "medium",
+			Workdir:         workdir,
+			RunLog:          segment.Path,
+			Timeout:         turnTimeout,
+		})
+		if runErr != nil {
+			return harness.Verdict{}, segment.Path, runErr
+		}
+		return verdict, segment.Path, nil
+	}
+
+	ok, firstLog, runErr := run("Return verdict ok. Omit target and message. Do no other work.")
+	if runErr != nil {
+		return fmt.Errorf("run ok supervisor turn: %w", runErr)
+	}
+	if ok != (harness.Verdict{Verdict: "ok"}) {
+		return fmt.Errorf("ok supervisor verdict = %#v", ok)
+	}
+	firstBinding, exists := backend.Bindings()[nodeID]
+	if !exists || firstBinding.SessionID == "" {
+		return fmt.Errorf("first supervisor binding = %#v", firstBinding)
+	}
+
+	steerPrompt := fmt.Sprintf("Return verdict steer with target %q and message exactly %q. Do no other work.", target, message)
+	steer, secondLog, runErr := run(steerPrompt)
+	if runErr != nil {
+		return fmt.Errorf("run steer supervisor turn: %w", runErr)
+	}
+	if steer != (harness.Verdict{Verdict: "steer", Target: target, Message: message}) {
+		return fmt.Errorf("steer supervisor verdict = %#v", steer)
+	}
+	if secondBinding := backend.Bindings()[nodeID]; secondBinding != firstBinding {
+		return fmt.Errorf("supervisor session changed: first=%#v second=%#v", firstBinding, secondBinding)
+	}
+	for _, path := range []string{firstLog, secondLog} {
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return fmt.Errorf("stat supervisor run log %q: %w", path, statErr)
+		}
+		if info.Size() == 0 {
+			return fmt.Errorf("supervisor run log %q is empty", path)
+		}
+	}
+	index, err := os.ReadFile(filepath.Join(logsRoot, "events", "index.jsonl"))
+	if err != nil {
+		return fmt.Errorf("read supervisor run-log index: %w", err)
+	}
+	if lines := strings.Split(strings.TrimSpace(string(index)), "\n"); len(lines) != 2 {
+		return fmt.Errorf("supervisor run-log index entries = %d, want 2", len(lines))
 	}
 	return nil
 }

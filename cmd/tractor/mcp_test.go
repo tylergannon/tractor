@@ -24,7 +24,7 @@ import (
 	"github.com/tylergannon/tractor/harness"
 )
 
-const slowPipeline = `{"name":"slow","nodes":[{"id":"start","type":"start","edges":[{"to":"wait"}]},{"id":"wait","type":"tool","tool_command":"sleep 30","edges":[{"to":"done"}]},{"id":"done","type":"exit"}]}`
+const slowPipeline = `{"name":"slow","start":"wait","nodes":[{"id":"wait","type":"tool","tool_command":"sleep 30","on_success":"success"}]}`
 
 func TestMCPStdioListsCompactToolsAndServesCurrentGraphSchema(t *testing.T) {
 	session, ctx := connectToTractorMCP(t)
@@ -156,7 +156,7 @@ func TestMCPStdioStartsAndObservesRealPipelineRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if checkpoint.CurrentNode != "done" || checkpoint.NextNode != "" {
+	if checkpoint.CurrentNode != "done" || checkpoint.NextNode != graph.Success {
 		t.Fatalf("checkpoint = %#v", checkpoint)
 	}
 }

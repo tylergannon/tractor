@@ -23,14 +23,14 @@ func TestRunnerCompletesLinearGraphAndWritesFinalCheckpoint(t *testing.T) {
 		exitNode("done"),
 	)
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(node graph.Node, offered []graph.Edge, scope ExecutionScope, got *graph.Graph) (harness.Outcome, *harness.Error) {
-		if node.Base().ID != "work" || !reflect.DeepEqual(offered, []graph.Edge{{To: "done"}}) {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, offered []graph.Edge, scope ExecutionScope, got *graph.Graph) (harness.Outcome, *harness.Error) {
+		if node.Base().ID != "work" || !reflect.DeepEqual(offered, []graph.Edge{{To: graph.Success}}) {
 			t.Fatalf("handler input node=%q offered=%v", node.Base().ID, offered)
 		}
 		if scope.Workdir != "/workspace" || scope.Goal != "ship it" || scope.Stop == nil {
 			t.Fatalf("scope = %#v", scope)
 		}
-		if got.Goal != pipeline.Goal || filepath.Base(scope.StageDir) != "000002-work" {
+		if got.Goal != pipeline.Goal || filepath.Base(scope.StageDir) != "000001-work" {
 			t.Fatalf("graph goal=%q stage=%q", got.Goal, scope.StageDir)
 		}
 		return harness.Outcome{Notes: strings.Repeat("ø", 205)}, nil
@@ -45,21 +45,20 @@ func TestRunnerCompletesLinearGraphAndWritesFinalCheckpoint(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.CurrentNode != "done" || checkpoint.NextNode != "" || checkpoint.RetryVisit {
+	if checkpoint.CurrentNode != "work" || checkpoint.NextNode != graph.Success || checkpoint.RetryVisit {
 		t.Fatalf("final checkpoint position = %#v", checkpoint)
 	}
-	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start", "work"}) {
+	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"work"}) {
 		t.Fatalf("completed nodes = %v", checkpoint.CompletedNodes)
 	}
-	if !reflect.DeepEqual(checkpoint.NodeVisits, map[string]int{"start": 1, "work": 1}) ||
-		!reflect.DeepEqual(checkpoint.NodeAttempts, map[string]int{"start": 1, "work": 1}) {
+	if !reflect.DeepEqual(checkpoint.NodeVisits, map[string]int{"work": 1}) ||
+		!reflect.DeepEqual(checkpoint.NodeAttempts, map[string]int{"work": 1}) {
 		t.Fatalf("checkpoint counters = visits %v attempts %v", checkpoint.NodeVisits, checkpoint.NodeAttempts)
 	}
-	if checkpoint.Seq != 2 || checkpoint.LastStage != "work" || len([]rune(checkpoint.LastResponse)) != 200 {
+	if checkpoint.Seq != 1 || checkpoint.LastStage != "work" || len([]rune(checkpoint.LastResponse)) != 200 {
 		t.Fatalf("checkpoint summary = seq %d stage %q response length %d", checkpoint.Seq, checkpoint.LastStage, len([]rune(checkpoint.LastResponse)))
 	}
-	assertJSONFile(t, filepath.Join(root, "stages", "000001-start", "outcome.json"), harness.Outcome{Notes: "run started"})
-	assertJSONFile(t, filepath.Join(root, "stages", "000002-work", "outcome.json"), harness.Outcome{Notes: strings.Repeat("ø", 205)})
+	assertJSONFile(t, filepath.Join(root, "stages", "000001-work", "outcome.json"), harness.Outcome{Notes: strings.Repeat("ø", 205)})
 }
 
 func TestRunnerLoopsUntilTargetVisitBudgetIsExhausted(t *testing.T) {
@@ -71,14 +70,14 @@ func TestRunnerLoopsUntilTargetVisitBudgetIsExhausted(t *testing.T) {
 		exitNode("done"),
 	)
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(node graph.Node, offered []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, offered []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		if node.Base().ID == "a" {
 			return harness.Outcome{Notes: "to b"}, nil
 		}
 		if len(offered) == 2 {
 			return harness.Outcome{Next: "a", Notes: "loop"}, nil
 		}
-		if !reflect.DeepEqual(offered, []graph.Edge{{To: "done"}}) {
+		if !reflect.DeepEqual(offered, []graph.Edge{{To: graph.Success}}) {
 			t.Fatalf("offered after budget exhaustion = %v", offered)
 		}
 		return harness.Outcome{Notes: "finish"}, nil
@@ -92,7 +91,7 @@ func TestRunnerLoopsUntilTargetVisitBudgetIsExhausted(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start", "a", "b", "a", "b"}) {
+	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"a", "b", "a", "b"}) {
 		t.Fatalf("completed nodes = %v", checkpoint.CompletedNodes)
 	}
 	if checkpoint.NodeVisits["a"] != 2 || checkpoint.NodeVisits["b"] != 2 {
@@ -109,7 +108,7 @@ func TestRunnerFailsWithoutDispatchWhenAllSuccessorsAreExhausted(t *testing.T) {
 	)
 	registry := NewRegistry()
 	gateCalled := false
-	registry.Register("task", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		if node.Base().ID == "gate" {
 			gateCalled = true
 		}
@@ -130,7 +129,7 @@ func TestRunnerFailsWithoutDispatchWhenAllSuccessorsAreExhausted(t *testing.T) {
 	if checkpoint.CurrentNode != "work" || checkpoint.NextNode != "gate" || checkpoint.RetryVisit {
 		t.Fatalf("checkpoint changed after pre-execution failure: %#v", checkpoint)
 	}
-	if _, err := os.Stat(filepath.Join(root, "stages", "000003-gate")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "stages", "000002-gate")); !os.IsNotExist(err) {
 		t.Fatalf("gate stage exists: %v", err)
 	}
 }
@@ -144,17 +143,17 @@ func TestRunnerRoutingRules(t *testing.T) {
 		wantNext   string
 		wantReason string
 	}{
-		{name: "single offered requires no choice", edges: []graph.Edge{{To: "left"}}, outcome: harness.Outcome{Notes: "only"}, wantStatus: RunCompleted},
-		{name: "multiple offered follows choice", edges: []graph.Edge{{To: "left"}, {To: "right"}}, outcome: harness.Outcome{Next: "right", Notes: "picked"}, wantStatus: RunCompleted},
-		{name: "multiple offered requires choice", edges: []graph.Edge{{To: "left"}, {To: "right"}}, outcome: harness.Outcome{Notes: "missing"}, wantStatus: RunFailed, wantNext: "choose", wantReason: "no choice among 2"},
-		{name: "choice must be offered", edges: []graph.Edge{{To: "left"}, {To: "right"}}, outcome: harness.Outcome{Next: "elsewhere", Notes: "invalid"}, wantStatus: RunFailed, wantNext: "choose", wantReason: "unoffered successor"},
+		{name: "single offered requires no choice", edges: []graph.Edge{{To: graph.Success}}, outcome: harness.Outcome{Notes: "only"}, wantStatus: RunCompleted},
+		{name: "multiple offered follows choice", edges: []graph.Edge{{To: graph.Failure}, {To: graph.Success}}, outcome: harness.Outcome{Next: graph.Success, Notes: "picked"}, wantStatus: RunCompleted},
+		{name: "multiple offered requires choice", edges: []graph.Edge{{To: graph.Failure}, {To: graph.Success}}, outcome: harness.Outcome{Notes: "missing"}, wantStatus: RunFailed, wantNext: "choose", wantReason: "no choice among 2"},
+		{name: "choice must be offered", edges: []graph.Edge{{To: graph.Failure}, {To: graph.Success}}, outcome: harness.Outcome{Next: "elsewhere", Notes: "invalid"}, wantStatus: RunFailed, wantNext: "choose", wantReason: "unoffered successor"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
-			nodes := []graph.Node{startNode("start", "choose"), customNode("choose", "task", test.edges, 0), exitNode("left"), exitNode("right")}
+			nodes := []graph.Node{startNode("start", "choose"), customNode("choose", "task", test.edges, 0)}
 			registry := NewRegistry()
-			registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+			registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 				return test.outcome, nil
 			}))
 			result, err := newTestRunner(t, testGraph(nodes...), registry, root, nil).Run()
@@ -169,7 +168,7 @@ func TestRunnerRoutingRules(t *testing.T) {
 				if checkpoint.CurrentNode != "choose" || checkpoint.NextNode != test.wantNext || !checkpoint.RetryVisit {
 					t.Fatalf("routing failure checkpoint = %#v", checkpoint)
 				}
-				assertJSONFile(t, filepath.Join(root, "stages", "000002-choose", "outcome.json"), test.outcome)
+				assertJSONFile(t, filepath.Join(root, "stages", "000001-choose", "outcome.json"), test.outcome)
 			}
 		})
 	}
@@ -182,14 +181,14 @@ func TestRunnerUnknownHandlerIsPreExecutionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != RunFailed || result.FailureReason != "unknown handler type: unregistered" {
+	if result.Status != RunFailed || result.FailureReason != "unknown handler type: codergen" {
 		t.Fatalf("result = %#v", result)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.CurrentNode != "start" || checkpoint.NextNode != "mystery" || checkpoint.RetryVisit {
+	if checkpoint.CurrentNode != "" || checkpoint.NextNode != "mystery" || checkpoint.RetryVisit {
 		t.Fatalf("checkpoint changed after registry failure: %#v", checkpoint)
 	}
-	if _, err := os.Stat(filepath.Join(root, "stages", "000002-mystery")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "stages", "000001-mystery")); !os.IsNotExist(err) {
 		t.Fatalf("mystery stage exists: %v", err)
 	}
 }
@@ -199,7 +198,7 @@ func TestRunnerExecutionFailureWritesFailureCheckpointAndErrorArtifact(t *testin
 	pipeline := testGraph(startNode("start", "work"), customNode("work", "task", []graph.Edge{{To: "done"}}, 0), exitNode("done"))
 	registry := NewRegistry()
 	wantError := &harness.Error{Category: harness.ErrorTerminal, Message: "broken"}
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		return harness.Outcome{}, wantError
 	}))
 	backend := &fakeBackend{bindings: map[string]harness.ThreadBinding{"work": {Harness: "codex", SessionID: "thread-1", Workdir: "/workspace"}}}
@@ -215,13 +214,13 @@ func TestRunnerExecutionFailureWritesFailureCheckpointAndErrorArtifact(t *testin
 	if checkpoint.CurrentNode != "work" || checkpoint.NextNode != "work" || !checkpoint.RetryVisit {
 		t.Fatalf("failure checkpoint position = %#v", checkpoint)
 	}
-	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start"}) || checkpoint.NodeVisits["work"] != 1 || checkpoint.NodeAttempts["work"] != 1 {
+	if len(checkpoint.CompletedNodes) != 0 || checkpoint.NodeVisits["work"] != 1 || checkpoint.NodeAttempts["work"] != 1 {
 		t.Fatalf("failure checkpoint state = %#v", checkpoint)
 	}
 	if !reflect.DeepEqual(checkpoint.Sessions, backend.bindings) {
 		t.Fatalf("sessions = %v", checkpoint.Sessions)
 	}
-	assertJSONFile(t, filepath.Join(root, "stages", "000002-work", "error.json"), *wantError)
+	assertJSONFile(t, filepath.Join(root, "stages", "000001-work", "error.json"), *wantError)
 }
 
 func TestRunnerRetriesRetryableErrorsWithFreshStagesAndOneVisit(t *testing.T) {
@@ -230,11 +229,11 @@ func TestRunnerRetriesRetryableErrorsWithFreshStagesAndOneVisit(t *testing.T) {
 	pipeline.Defaults.MaxRetries = jsonschema.Optional[int]{Present: true, Value: 2}
 	registry := NewRegistry()
 	calls := 0
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		calls++
 		if calls == 2 {
 			checkpoint := mustCheckpoint(t, root)
-			if checkpoint.CurrentNode != "start" || checkpoint.NextNode != "work" || checkpoint.Seq != 1 || checkpoint.NodeAttempts["work"] != 0 {
+			if checkpoint.CurrentNode != "" || checkpoint.NextNode != "work" || checkpoint.Seq != 0 || checkpoint.NodeAttempts["work"] != 0 {
 				t.Fatalf("checkpoint written between attempts: %#v", checkpoint)
 			}
 		}
@@ -258,17 +257,17 @@ func TestRunnerRetriesRetryableErrorsWithFreshStagesAndOneVisit(t *testing.T) {
 		t.Fatalf("result=%#v calls=%d delays=%v", result, calls, delays)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.NodeVisits["work"] != 1 || checkpoint.NodeAttempts["work"] != 3 || checkpoint.Seq != 4 {
+	if checkpoint.NodeVisits["work"] != 1 || checkpoint.NodeAttempts["work"] != 3 || checkpoint.Seq != 3 {
 		t.Fatalf("retry counters = %#v", checkpoint)
 	}
-	assertJSONFile(t, filepath.Join(root, "stages", "000002-work", "error.json"), harness.Error{Category: harness.ErrorRetryable, Message: "outage-1"})
-	assertJSONFile(t, filepath.Join(root, "stages", "000003-work", "error.json"), harness.Error{Category: harness.ErrorRetryable, Message: "outage-2"})
-	assertJSONFile(t, filepath.Join(root, "stages", "000004-work", "outcome.json"), harness.Outcome{Notes: "recovered"})
+	assertJSONFile(t, filepath.Join(root, "stages", "000001-work", "error.json"), harness.Error{Category: harness.ErrorRetryable, Message: "outage-1"})
+	assertJSONFile(t, filepath.Join(root, "stages", "000002-work", "error.json"), harness.Error{Category: harness.ErrorRetryable, Message: "outage-2"})
+	assertJSONFile(t, filepath.Join(root, "stages", "000003-work", "outcome.json"), harness.Outcome{Notes: "recovered"})
 	latest, err := os.Readlink(filepath.Join(root, "stages", "latest", "work"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if latest != filepath.Join("..", "000004-work") {
+	if latest != filepath.Join("..", "000003-work") {
 		t.Fatalf("latest work stage = %q", latest)
 	}
 }
@@ -277,12 +276,12 @@ func TestRunnerRetryBudgetAndNonRetryableCategories(t *testing.T) {
 	t.Run("node budget overrides default", func(t *testing.T) {
 		root := t.TempDir()
 		work := customNode("work", "task", []graph.Edge{{To: "done"}}, 0)
-		work.(*graph.CustomNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: 1}
+		work.(*graph.CodergenNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: 1}
 		pipeline := testGraph(startNode("start", "work"), work, exitNode("done"))
 		pipeline.Defaults.MaxRetries = jsonschema.Optional[int]{Present: true, Value: 3}
 		registry := NewRegistry()
 		calls := 0
-		registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+		registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 			calls++
 			return harness.Outcome{}, &harness.Error{Category: harness.ErrorRetryable, Message: "still unavailable"}
 		}))
@@ -305,10 +304,10 @@ func TestRunnerRetryBudgetAndNonRetryableCategories(t *testing.T) {
 		t.Run(string(category), func(t *testing.T) {
 			root := t.TempDir()
 			work := customNode("work", "task", []graph.Edge{{To: "done"}}, 0)
-			work.(*graph.CustomNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: 3}
+			work.(*graph.CodergenNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: 3}
 			registry := NewRegistry()
 			calls := 0
-			registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+			registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 				calls++
 				return harness.Outcome{}, &harness.Error{Category: category, Message: "stop"}
 			}))
@@ -330,9 +329,9 @@ func TestRunnerRetryBudgetAndNonRetryableCategories(t *testing.T) {
 
 func TestExecuteWithRetryRejectsNegativeBudgetWithoutDispatch(t *testing.T) {
 	work := customNode("work", "task", []graph.Edge{{To: "done"}}, 0)
-	work.(*graph.CustomNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: -1}
+	work.(*graph.CodergenNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: -1}
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		t.Fatal("handler dispatched with a negative retry budget")
 		return harness.Outcome{}, nil
 	}))
@@ -345,7 +344,7 @@ func TestExecuteWithRetryRejectsNegativeBudgetWithoutDispatch(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.CurrentNode != "start" || checkpoint.NextNode != "work" || checkpoint.NodeVisits["work"] != 0 {
+	if checkpoint.CurrentNode != "" || checkpoint.NextNode != "work" || checkpoint.NodeVisits["work"] != 0 {
 		t.Fatalf("checkpoint changed before dispatch: %#v", checkpoint)
 	}
 }
@@ -353,10 +352,10 @@ func TestExecuteWithRetryRejectsNegativeBudgetWithoutDispatch(t *testing.T) {
 func TestRunnerStopDuringBackoffEndsWithoutAnotherAttempt(t *testing.T) {
 	root := t.TempDir()
 	work := customNode("work", "task", []graph.Edge{{To: "done"}}, 0)
-	work.(*graph.CustomNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: 2}
+	work.(*graph.CodergenNode).MaxRetries = jsonschema.Optional[int]{Present: true, Value: 2}
 	registry := NewRegistry()
 	firstAttempt := make(chan struct{})
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		close(firstAttempt)
 		return harness.Outcome{}, &harness.Error{Category: harness.ErrorRetryable, Message: "temporary"}
 	}))
@@ -388,7 +387,7 @@ func TestRunnerStopDuringBackoffEndsWithoutAnotherAttempt(t *testing.T) {
 	if checkpoint.NodeVisits["work"] != 1 || checkpoint.NodeAttempts["work"] != 1 || !checkpoint.RetryVisit {
 		t.Fatalf("stopped retry checkpoint = %#v", checkpoint)
 	}
-	if _, err := os.Stat(filepath.Join(root, "stages", "000003-work")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "stages", "000002-work")); !os.IsNotExist(err) {
 		t.Fatalf("second attempt stage exists: %v", err)
 	}
 }
@@ -419,8 +418,10 @@ func TestExecuteWithRetryStopBeforeFirstAttemptConsumesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner.stop.Stop()
-	_, _, runErr, attempted, _, executeErr := runner.executeWithRetry(
-		startNode("start", "done"), HandlerFunc(startHandler), []graph.Edge{{To: "done"}}, state, store, "/workspace", "",
+	_, _, runErr, attempted, _, _, executeErr := runner.executeWithRetry(
+		customNode("work", "task", []graph.Edge{{To: graph.Success}}, 0), HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+			return harness.Outcome{}, nil
+		}), []graph.Edge{{To: graph.Success}}, state, store, "/workspace", "",
 	)
 	if executeErr != nil || runErr == nil || runErr.Category != harness.ErrorInterrupted || attempted {
 		t.Fatalf("result error=%v runErr=%v attempted=%v", executeErr, runErr, attempted)
@@ -450,7 +451,7 @@ func TestRunnerConvertsHandlerPanicToTerminalFailure(t *testing.T) {
 	root := t.TempDir()
 	pipeline := testGraph(startNode("start", "work"), customNode("work", "task", []graph.Edge{{To: "done"}}, 0), exitNode("done"))
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		panic("boom")
 	}))
 
@@ -461,7 +462,7 @@ func TestRunnerConvertsHandlerPanicToTerminalFailure(t *testing.T) {
 	if result.Status != RunFailed || result.FailureReason != "handler panic: boom" {
 		t.Fatalf("result = %#v", result)
 	}
-	assertJSONFile(t, filepath.Join(root, "stages", "000002-work", "error.json"), harness.Error{
+	assertJSONFile(t, filepath.Join(root, "stages", "000001-work", "error.json"), harness.Error{
 		Category: harness.ErrorTerminal,
 		Message:  "handler panic: boom",
 	})
@@ -470,7 +471,10 @@ func TestRunnerConvertsHandlerPanicToTerminalFailure(t *testing.T) {
 func TestRunnerStopBeforeDispatchPreservesInitialCheckpoint(t *testing.T) {
 	root := t.TempDir()
 	backend := &fakeBackend{}
-	runner := newTestRunner(t, testGraph(startNode("start", "done"), exitNode("done")), NewRegistry(), root, backend)
+	pipeline := graph.Graph{Start: "work", Nodes: []graph.Node{
+		customNode("work", "task", []graph.Edge{{To: graph.Success}}, 0),
+	}}
+	runner := newTestRunner(t, pipeline, NewRegistry(), root, backend)
 	runner.Stop()
 
 	result, err := runner.Run()
@@ -481,7 +485,7 @@ func TestRunnerStopBeforeDispatchPreservesInitialCheckpoint(t *testing.T) {
 		t.Fatalf("result=%#v interrupts=%d", result, backend.interrupts)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.CurrentNode != "" || checkpoint.NextNode != "start" || checkpoint.RetryVisit || checkpoint.Seq != 0 {
+	if checkpoint.CurrentNode != "" || checkpoint.NextNode != "work" || checkpoint.RetryVisit || checkpoint.Seq != 0 {
 		t.Fatalf("initial checkpoint = %#v", checkpoint)
 	}
 	if len(checkpoint.CompletedNodes) != 0 || len(checkpoint.NodeVisits) != 0 || len(checkpoint.NodeAttempts) != 0 {
@@ -489,14 +493,14 @@ func TestRunnerStopBeforeDispatchPreservesInitialCheckpoint(t *testing.T) {
 	}
 }
 
-func TestRunnerReachingExitNeverDispatchesIt(t *testing.T) {
+func TestRunnerReachingPseudoTargetNeverDispatchesIt(t *testing.T) {
 	root := t.TempDir()
 	registry := NewRegistry()
-	registry.Register("exit", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
-		t.Fatal("exit handler executed")
-		return harness.Outcome{}, nil
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+		return harness.Outcome{Notes: "done"}, nil
 	}))
-	result, err := newTestRunner(t, testGraph(startNode("start", "done"), exitNode("done")), registry, root, nil).Run()
+	pipeline := graph.Graph{Start: "work", Nodes: []graph.Node{customNode("work", "task", []graph.Edge{{To: graph.Success}}, 0)}}
+	result, err := newTestRunner(t, pipeline, registry, root, nil).Run()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,15 +508,19 @@ func TestRunnerReachingExitNeverDispatchesIt(t *testing.T) {
 		t.Fatalf("result = %#v", result)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.NodeVisits["done"] != 0 || checkpoint.NodeAttempts["done"] != 0 || checkpoint.Seq != 1 {
-		t.Fatalf("exit was counted: %#v", checkpoint)
+	if checkpoint.NextNode != graph.Success || checkpoint.NodeVisits[graph.Success] != 0 || checkpoint.NodeAttempts[graph.Success] != 0 || checkpoint.Seq != 1 {
+		t.Fatalf("pseudo-target was counted: %#v", checkpoint)
 	}
 }
 
 func TestResumeRunnerContinuesInitialCheckpointWithoutRewritingIt(t *testing.T) {
 	root := t.TempDir()
-	pipeline := testGraph(startNode("start", "done"), exitNode("done"))
-	initial := newTestRunner(t, pipeline, NewRegistry(), root, nil)
+	pipeline := graph.Graph{Start: "work", Nodes: []graph.Node{customNode("work", "task", []graph.Edge{{To: graph.Success}}, 0)}}
+	registry := NewRegistry()
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+		return harness.Outcome{Notes: "resumed work"}, nil
+	}))
+	initial := newTestRunner(t, pipeline, registry, root, nil)
 	initial.Stop()
 	result, err := initial.Run()
 	if err != nil || result.Status != RunFailed {
@@ -523,8 +531,8 @@ func TestResumeRunnerContinuesInitialCheckpointWithoutRewritingIt(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	registry := NewRegistry()
-	registry.Register("start", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry = NewRegistry()
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		gotCheckpoint, err := os.ReadFile(filepath.Join(root, "checkpoint.json"))
 		if err != nil {
 			t.Fatal(err)
@@ -532,7 +540,7 @@ func TestResumeRunnerContinuesInitialCheckpointWithoutRewritingIt(t *testing.T) 
 		if !reflect.DeepEqual(gotCheckpoint, wantCheckpoint) {
 			t.Fatal("resume rewrote the initial checkpoint before dispatch")
 		}
-		return harness.Outcome{Notes: "resumed start"}, nil
+		return harness.Outcome{Notes: "resumed work"}, nil
 	}))
 	resumed := newTestResumeRunner(t, pipeline, registry, root, nil)
 	result, err = resumed.Run()
@@ -540,7 +548,7 @@ func TestResumeRunnerContinuesInitialCheckpointWithoutRewritingIt(t *testing.T) 
 		t.Fatalf("resumed result=%#v err=%v", result, err)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.NodeVisits["start"] != 1 || checkpoint.NodeAttempts["start"] != 1 {
+	if checkpoint.NodeVisits["work"] != 1 || checkpoint.NodeAttempts["work"] != 1 {
 		t.Fatalf("resumed initial counters = %#v", checkpoint)
 	}
 }
@@ -551,12 +559,12 @@ func TestResumeRunnerUsesResolvedSuccessorAndRecoversCrashedStageSequence(t *tes
 		startNode("start", "choose"),
 		customNode("choose", "task", []graph.Edge{{To: "left"}, {To: "right"}}, 0),
 		customNode("right", "task", []graph.Edge{{To: "done"}}, 0),
-		exitNode("left"),
 		exitNode("done"),
+		exitNode("left"),
 	)
 	registry := NewRegistry()
 	var initial *Runner
-	registry.Register("task", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		if node.Base().ID != "choose" {
 			t.Fatalf("unexpected initial dispatch: %s", node.Base().ID)
 		}
@@ -569,7 +577,7 @@ func TestResumeRunnerUsesResolvedSuccessorAndRecoversCrashedStageSequence(t *tes
 		t.Fatalf("initial result=%#v err=%v", result, err)
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if checkpoint.CurrentNode != "choose" || checkpoint.NextNode != "right" || checkpoint.Seq != 2 {
+	if checkpoint.CurrentNode != "choose" || checkpoint.NextNode != "right" || checkpoint.Seq != 1 {
 		t.Fatalf("success checkpoint = %#v", checkpoint)
 	}
 	if err := os.Mkdir(filepath.Join(root, "stages", "000009-crashed"), 0o755); err != nil {
@@ -577,7 +585,7 @@ func TestResumeRunnerUsesResolvedSuccessorAndRecoversCrashedStageSequence(t *tes
 	}
 
 	resumedRegistry := NewRegistry()
-	resumedRegistry.Register("task", HandlerFunc(func(node graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	resumedRegistry.Register("codergen", HandlerFunc(func(node graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		if node.Base().ID == "choose" {
 			t.Fatal("resume re-asked the completed routing decision")
 		}
@@ -591,7 +599,7 @@ func TestResumeRunnerUsesResolvedSuccessorAndRecoversCrashedStageSequence(t *tes
 		t.Fatalf("resumed result=%#v err=%v", result, err)
 	}
 	checkpoint = mustCheckpoint(t, root)
-	if checkpoint.Seq != 10 || !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start", "choose", "right"}) {
+	if checkpoint.Seq != 10 || !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"choose", "right"}) {
 		t.Fatalf("resumed checkpoint = %#v", checkpoint)
 	}
 }
@@ -606,7 +614,7 @@ func TestResumeRunnerRepeatedFailureContinuesOneVisit(t *testing.T) {
 
 	runWork := func(succeed bool, resume bool) RunResult {
 		registry := NewRegistry()
-		registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+		registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 			if succeed {
 				return harness.Outcome{Notes: "recovered"}, nil
 			}
@@ -633,7 +641,7 @@ func TestResumeRunnerRepeatedFailureContinuesOneVisit(t *testing.T) {
 	}
 	checkpoint := mustCheckpoint(t, root)
 	if checkpoint.NodeVisits["work"] != 1 || checkpoint.NodeAttempts["work"] != 2 || !checkpoint.RetryVisit ||
-		!reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start"}) || checkpoint.LastStage != "start" || checkpoint.LastResponse != "run started" {
+		len(checkpoint.CompletedNodes) != 0 || checkpoint.LastStage != "" || checkpoint.LastResponse != "" {
 		t.Fatalf("second failure checkpoint = %#v", checkpoint)
 	}
 	if result := runWork(true, true); result.Status != RunCompleted {
@@ -653,7 +661,7 @@ func TestResumeRunnerSnapshotsBindingsFromReconstructedBackend(t *testing.T) {
 	}
 	initialBackend := &fakeBackend{bindings: initialBindings}
 	failingRegistry := NewRegistry()
-	failingRegistry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	failingRegistry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		return harness.Outcome{}, &harness.Error{Category: harness.ErrorTerminal, Message: "restart me"}
 	}))
 	if result, err := newTestRunner(t, pipeline, failingRegistry, root, initialBackend).Run(); err != nil || result.Status != RunFailed {
@@ -668,7 +676,7 @@ func TestResumeRunnerSnapshotsBindingsFromReconstructedBackend(t *testing.T) {
 	restoredBindings["review"] = harness.ThreadBinding{Harness: "claude", SessionID: "new-session", Workdir: "/workspace"}
 	reconstructedBackend := &fakeBackend{bindings: restoredBindings}
 	successRegistry := NewRegistry()
-	successRegistry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	successRegistry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		return harness.Outcome{Notes: "resumed session"}, nil
 	}))
 	if result, err := newTestResumeRunner(t, pipeline, successRegistry, root, reconstructedBackend).Run(); err != nil || result.Status != RunCompleted {
@@ -682,17 +690,21 @@ func TestResumeRunnerSnapshotsBindingsFromReconstructedBackend(t *testing.T) {
 
 func TestResumeRunnerFinalCheckpointReturnsWithoutDispatchOrRewrite(t *testing.T) {
 	root := t.TempDir()
-	pipeline := testGraph(startNode("start", "done"), exitNode("done"))
-	if result, err := newTestRunner(t, pipeline, NewRegistry(), root, nil).Run(); err != nil || result.Status != RunCompleted {
+	pipeline := graph.Graph{Start: "work", Nodes: []graph.Node{customNode("work", "task", []graph.Edge{{To: graph.Success}}, 0)}}
+	registry := NewRegistry()
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+		return harness.Outcome{Notes: "done"}, nil
+	}))
+	if result, err := newTestRunner(t, pipeline, registry, root, nil).Run(); err != nil || result.Status != RunCompleted {
 		t.Fatalf("initial result=%#v err=%v", result, err)
 	}
 	wantCheckpoint, err := os.ReadFile(filepath.Join(root, "checkpoint.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := NewRegistry()
-	registry.Register("exit", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
-		t.Fatal("final checkpoint dispatched exit")
+	registry = NewRegistry()
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+		t.Fatal("final checkpoint dispatched work")
 		return harness.Outcome{}, nil
 	}))
 	result, err := newTestResumeRunner(t, pipeline, registry, root, nil).Run()
@@ -709,15 +721,15 @@ func TestResumeRunnerFinalCheckpointReturnsWithoutDispatchOrRewrite(t *testing.T
 }
 
 func TestResumeRunnerRejectsMalformedCheckpointContinuation(t *testing.T) {
-	pipeline := testGraph(startNode("start", "done"), exitNode("done"))
+	pipeline := graph.Graph{Start: "work", Nodes: []graph.Node{customNode("work", "task", []graph.Edge{{To: graph.Success}}, 0)}}
 	tests := []struct {
 		name string
 		raw  string
 		want string
 	}{
 		{name: "malformed json", raw: "{", want: "decode checkpoint"},
-		{name: "empty continuation", raw: `{}`, want: "no valid continuation"},
-		{name: "unknown next node", raw: `{"current_node":"start","next_node":"missing"}`, want: "not in the graph"},
+		{name: "empty continuation", raw: `{}`, want: "not in the graph"},
+		{name: "unknown next node", raw: `{"current_node":"work","next_node":"missing"}`, want: "not in the graph"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -827,23 +839,70 @@ func mustCheckpoint(t *testing.T, root string) Checkpoint {
 }
 
 func testGraph(nodes ...graph.Node) graph.Graph {
-	return graph.Graph{Name: "test", Goal: "ship it", Nodes: nodes}
+	pipeline := graph.Graph{Name: "test", Goal: "ship it"}
+	exits := make(map[string]string)
+	for _, node := range nodes {
+		if marker, ok := node.(*graph.SupervisorNode); ok && marker.Prompt == "__test_exit__" {
+			target := graph.Success
+			if len(exits) > 0 {
+				target = graph.Failure
+			}
+			exits[marker.ID] = target
+			continue
+		}
+		if marker, ok := node.(*graph.CodergenNode); ok && marker.Prompt.Present && marker.Prompt.Value == "__test_start__" {
+			pipeline.Start = marker.Edges[0].To
+			continue
+		}
+		pipeline.Nodes = append(pipeline.Nodes, node)
+	}
+	for _, node := range pipeline.Nodes {
+		switch node := node.(type) {
+		case *graph.CodergenNode:
+			rewriteTestExitTargets(node.Edges, exits)
+		case *graph.FanInNode:
+			rewriteTestExitTargets(node.Edges, exits)
+		case *graph.ToolNode:
+			if target := exits[node.OnSuccess]; target != "" {
+				node.OnSuccess = target
+			}
+			if node.OnError.Present {
+				if target := exits[node.OnError.Value]; target != "" {
+					node.OnError.Value = target
+				}
+			}
+		}
+	}
+	if pipeline.Start == "" && len(pipeline.Nodes) > 0 {
+		pipeline.Start = pipeline.Nodes[0].Base().ID
+	}
+	return pipeline
 }
 
 func startNode(id, next string) graph.Node {
-	return &graph.StartNode{NodeBase: graph.NodeBase{ID: id, Edges: []graph.Edge{{To: next}}}}
+	node := &graph.CodergenNode{NodeBase: graph.NodeBase{ID: id}, Edges: []graph.Edge{{To: next}}}
+	node.Prompt = optional("__test_start__")
+	return node
 }
 
 func exitNode(id string) graph.Node {
-	return &graph.ExitNode{NodeBase: graph.NodeBase{ID: id}}
+	return &graph.SupervisorNode{NodeBase: graph.NodeBase{ID: id}, Prompt: "__test_exit__"}
 }
 
 func customNode(id, nodeType string, edges []graph.Edge, maxVisits int) graph.Node {
-	node := &graph.CustomNode{NodeBase: graph.NodeBase{ID: id, Edges: edges}, Type: nodeType}
+	node := &graph.CodergenNode{NodeBase: graph.NodeBase{ID: id}, Edges: edges}
 	if maxVisits > 0 {
 		node.MaxVisits = jsonschema.Optional[int]{Present: true, Value: maxVisits}
 	}
 	return node
+}
+
+func rewriteTestExitTargets(edges []graph.Edge, exits map[string]string) {
+	for index := range edges {
+		if target := exits[edges[index].To]; target != "" {
+			edges[index].To = target
+		}
+	}
 }
 
 type fakeBackend struct {
@@ -852,6 +911,10 @@ type fakeBackend struct {
 }
 
 func (*fakeBackend) Run(harness.CodergenTurn) (harness.Outcome, *harness.Error) {
+	panic("not used")
+}
+
+func (*fakeBackend) RunSupervisor(harness.SupervisorTurn) (harness.Verdict, *harness.Error) {
 	panic("not used")
 }
 
@@ -866,3 +929,5 @@ func (b *fakeBackend) InterruptAll() {
 func (b *fakeBackend) Bindings() map[string]harness.ThreadBinding {
 	return b.bindings
 }
+
+func (*fakeBackend) SetBindingOpened(harness.BindingOpened) {}

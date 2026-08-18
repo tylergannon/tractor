@@ -1,0 +1,4 @@
+{"node_id":"coach","parts":[{"type":"text","text":"Patrol nudge:\n{\n  \"live\": [\n    {\n      \"node_id\": \"work\",\n      \"attempt\": 1,\n      \"run_log\": \"/tmp/tractor-live-supervisor-v3-logs.G7ExGo/events/000001-work.jsonl\"\n    }\n  ],\n  \"count\": 0\n}"}],"ts":"2026-08-18T01:35:02.631715Z","type":"user"}
+{"args":{"message":"Create supervisor-received.txt containing exactly TRACTOR_SUPERVISOR_RECEIVED and then finish.","target":"work","verdict":"steer"},"call_id":"toolu_01HTMF4fMgF79HWAQg5Kv1wv","name":"StructuredOutput","node_id":"coach","ts":"2026-08-18T01:35:06.370108Z","type":"tool_call"}
+{"call_id":"toolu_01HTMF4fMgF79HWAQg5Kv1wv","node_id":"coach","output":"Structured output provided successfully","ts":"2026-08-18T01:35:06.377022Z","type":"tool_result"}
+{"node_id":"coach","ts":"2026-08-18T01:35:06.385521Z","type":"usage","usage":{"cache_creation_input_tokens":298,"cache_read_input_tokens":33321,"input_tokens":2,"output_tokens":138}}

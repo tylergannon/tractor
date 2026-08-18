@@ -1,0 +1,4 @@
+{"node_id":"lead","parts":[{"type":"text","text":"Patrol nudge:\n{\n  \"live\": [\n    {\n      \"node_id\": \"work\",\n      \"attempt\": 1\n    }\n  ],\n  \"batch\": \"/tmp/tractor-supervisor-hierarchy-logs.g8RjoV/supervisors/lead/inbox.000002.jsonl\",\n  \"count\": 1,\n  \"tally\": {\n    \"director\": {\n      \"coaching\": 1\n    }\n  }\n}"}],"ts":"2026-08-18T01:17:36.639387Z","type":"user"}
+{"args":{"message":"lower-ok","verdict":"ok"},"call_id":"toolu_019jUkvgBhY4iE5shwrGmQJS","name":"StructuredOutput","node_id":"lead","ts":"2026-08-18T01:17:39.978869Z","type":"tool_call"}
+{"call_id":"toolu_019jUkvgBhY4iE5shwrGmQJS","node_id":"lead","output":"Structured output provided successfully","ts":"2026-08-18T01:17:39.983823Z","type":"tool_result"}
+{"node_id":"lead","ts":"2026-08-18T01:17:39.992639Z","type":"usage","usage":{"cache_creation_input_tokens":318,"cache_read_input_tokens":33267,"input_tokens":2,"output_tokens":79}}

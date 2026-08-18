@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-08-18T01:16:47.753659Z",
+  "current_node": "work",
+  "next_node": "success",
+  "completed_nodes": [
+    "prepare",
+    "work"
+  ],
+  "node_visits": {
+    "prepare": 1,
+    "work": 1
+  },
+  "node_attempts": {
+    "prepare": 1,
+    "work": 2
+  },
+  "seq": 3,
+  "retry_visit": false,
+  "last_stage": "work",
+  "last_response": "Created resumed-success.txt containing exactly RESUMED.",
+  "sessions": {
+    "coach": {
+      "harness": "claude",
+      "session_id": "9a700661-2d89-4ce3-979f-15b745fe4b29",
+      "workdir": "/tmp/tractor-supervisor-resume-work.UEjfeF"
+    },
+    "worker-thread": {
+      "harness": "codex",
+      "session_id": "01a01270-6a86-7593-958b-d6682f82d118",
+      "workdir": "/tmp/tractor-supervisor-resume-work.UEjfeF"
+    }
+  }
+}

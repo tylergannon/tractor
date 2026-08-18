@@ -1,0 +1,9 @@
+{"id":"172ab1a0ce02cc59b94efb2d1b74536a","name":"supervisor-stop-proof","ts":"2026-08-18T01:18:25.070827Z","type":"PipelineStarted"}
+{"node_id":"work","ts":"2026-08-18T01:18:25.071135Z","type":"CheckpointSaved"}
+{"index":1,"name":"work","ts":"2026-08-18T01:18:25.071292Z","type":"StageStarted"}
+{"count":0,"supervisor":"coach","ts":"2026-08-18T01:18:26.074309Z","type":"SupervisorFlushed"}
+{"node_id":"coach","ts":"2026-08-18T01:18:26.075791Z","type":"CheckpointSaved"}
+{"error":"tool command stopped by operator","index":1,"name":"work","ts":"2026-08-18T01:18:34.977266Z","type":"StageFailed","will_retry":false}
+{"node_id":"work","ts":"2026-08-18T01:18:34.977698Z","type":"CheckpointSaved"}
+{"supervisor":"coach","ts":"2026-08-18T01:18:39.980168Z","type":"SupervisorVerdict","verdict":"error"}
+{"duration":"14.909762458s","error":"tool command stopped by operator","ts":"2026-08-18T01:18:39.980319Z","type":"PipelineFailed"}

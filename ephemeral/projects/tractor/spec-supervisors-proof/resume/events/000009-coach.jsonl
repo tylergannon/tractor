@@ -1,0 +1,2 @@
+{"node_id":"coach","parts":[{"type":"text","text":"Patrol nudge:\n{\n  \"live\": [\n    {\n      \"node_id\": \"work\",\n      \"attempt\": 1,\n      \"run_log\": \"/tmp/tractor-supervisor-resume-logs.GMI9De/events/000005-work.jsonl\"\n    }\n  ],\n  \"count\": 0\n}"}],"ts":"2026-08-18T01:16:46.468907Z","type":"user"}
+{"node_id":"coach","ts":"2026-08-18T01:16:47.766051Z","type":"usage","usage":{"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"input_tokens":0,"output_tokens":0}}

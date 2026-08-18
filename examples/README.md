@@ -13,5 +13,8 @@ spend tokens on a substantial coding task.
 - [`yaml/multiline-tool.yaml`](yaml/multiline-tool.yaml) proves that YAML
   comments and literal block commands work through the real CLI without an LLM
   turn.
+- [`supervisor/live-steering.json`](supervisor/live-steering.json) proves that
+  a Claude supervisor patrol can steer a live Codex worker and cause an
+  independently verified workspace effect.
 
 Each directory documents the invocation and the observable success criteria.

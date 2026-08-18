@@ -37,7 +37,7 @@ func TestParallelRunnerIsolatesBranchesCapsConcurrencyAndFinalizesEvidence(t *te
 	var active atomic.Int32
 	var peak atomic.Int32
 	var indexMu sync.Mutex
-	registry.Register("task", HandlerFunc(func(node graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		current := active.Add(1)
 		defer active.Add(-1)
 		for {
@@ -132,8 +132,7 @@ func TestParallelRunnerIsolatesBranchesCapsConcurrencyAndFinalizesEvidence(t *te
 	}
 	for _, result := range evidence {
 		if result.Error != nil || result.Outcome == nil || result.Notes != "finished "+result.BranchID ||
-			!reflect.DeepEqual(result.Path, []string{result.BranchID}) || len(result.StageDirs) != 1 ||
-			!reflect.DeepEqual(result.Segments, []string{filepath.Join("events", result.BranchID+".jsonl")}) {
+			!reflect.DeepEqual(result.Path, []string{result.BranchID}) || len(result.StageDirs) != 1 || len(result.Segments) != 0 {
 			t.Fatalf("branch evidence = %#v", result)
 		}
 		if filepath.Base(result.StageDirs[0]) == "" || !strings.HasSuffix(filepath.Base(result.StageDirs[0]), "-"+result.BranchID) {
@@ -153,7 +152,7 @@ func TestParallelRunnerIsolatesBranchesCapsConcurrencyAndFinalizesEvidence(t *te
 		}
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start", "fanout", "join"}) || checkpoint.NodeVisits["fanout"] != 1 {
+	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"fanout", "join"}) || checkpoint.NodeVisits["fanout"] != 1 {
 		t.Fatalf("top-level checkpoint = %#v", checkpoint)
 	}
 	for _, branchID := range branchIDs {
@@ -179,12 +178,12 @@ func TestParallelRunnerWritesFailureEvidenceAndRollsBackBranchCounters(t *testin
 	root := t.TempDir()
 	pipeline := parallelRunnerGraph([]string{"left", "right"}, 2)
 	for _, node := range pipeline.Nodes {
-		if branch, ok := node.(*graph.CustomNode); ok && branch.ID == "left" {
+		if branch, ok := node.(*graph.CodergenNode); ok && branch.ID == "left" {
 			branch.MaxRetries = jsonschema.Optional[int]{Present: true, Value: 1}
 		}
 	}
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		if node.Base().ID == "left" {
 			return harness.Outcome{}, &harness.Error{Category: harness.ErrorRetryable, Message: "transient branch failure"}
 		}
@@ -200,7 +199,7 @@ func TestParallelRunnerWritesFailureEvidenceAndRollsBackBranchCounters(t *testin
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
 
-	evidence, err := readBranchResults(filepath.Join(root, "stages", "000002-fanout", "branches.json"))
+	evidence, err := readBranchResults(filepath.Join(root, "stages", "000001-fanout", "branches.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +213,7 @@ func TestParallelRunnerWritesFailureEvidenceAndRollsBackBranchCounters(t *testin
 		t.Fatalf("successful branch evidence = %#v", evidence[1])
 	}
 	checkpoint := mustCheckpoint(t, root)
-	if !reflect.DeepEqual(checkpoint.CompletedNodes, []string{"start"}) || !checkpoint.RetryVisit || checkpoint.NodeVisits["fanout"] != 1 || checkpoint.NodeAttempts["fanout"] != 1 ||
+	if len(checkpoint.CompletedNodes) != 0 || !checkpoint.RetryVisit || checkpoint.NodeVisits["fanout"] != 1 || checkpoint.NodeAttempts["fanout"] != 1 ||
 		checkpoint.NodeVisits["left"] != 0 || checkpoint.NodeAttempts["left"] != 0 || checkpoint.NodeVisits["right"] != 0 || checkpoint.NodeAttempts["right"] != 0 {
 		t.Fatalf("rolled-back checkpoint = %#v", checkpoint)
 	}
@@ -235,7 +234,7 @@ func TestParallelRunnerStopInterruptsActiveAndQueuedBranches(t *testing.T) {
 	registry := NewRegistry()
 	started := make(chan struct{}, 1)
 	var calls atomic.Int32
-	registry.Register("task", HandlerFunc(func(_ graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(_ graph.Node, _ []graph.Edge, scope ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		calls.Add(1)
 		started <- struct{}{}
 		scope.Stop.Wait()
@@ -268,7 +267,7 @@ func TestParallelRunnerStopInterruptsActiveAndQueuedBranches(t *testing.T) {
 	if calls.Load() != 1 || backend.interrupts != 1 {
 		t.Fatalf("handler calls=%d backend interrupts=%d", calls.Load(), backend.interrupts)
 	}
-	evidence, err := readBranchResults(filepath.Join(root, "stages", "000002-fanout", "branches.json"))
+	evidence, err := readBranchResults(filepath.Join(root, "stages", "000001-fanout", "branches.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,21 +286,17 @@ func TestParallelRunnerStopInterruptsActiveAndQueuedBranches(t *testing.T) {
 }
 
 func parallelRunnerGraph(branchIDs []string, maxParallel int) graph.Graph {
-	edges := make([]graph.Edge, len(branchIDs))
 	nodes := make([]graph.Node, 0, len(branchIDs)+4)
 	nodes = append(nodes, startNode("start", "fanout"))
 	parallel := &graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}}
 	parallel.MaxParallel = jsonschema.Optional[int]{Present: true, Value: maxParallel}
-	for index, branchID := range branchIDs {
-		edges[index] = graph.Edge{To: branchID}
-	}
-	parallel.Edges = edges
+	parallel.Branches = append([]string(nil), branchIDs...)
 	nodes = append(nodes, parallel)
 	for _, branchID := range branchIDs {
 		nodes = append(nodes, customNode(branchID, "task", []graph.Edge{{To: "join"}}, 0))
 	}
 	nodes = append(nodes,
-		&graph.FanInNode{NodeBase: graph.NodeBase{ID: "join", Edges: []graph.Edge{{To: "done"}}}},
+		&graph.FanInNode{NodeBase: graph.NodeBase{ID: "join"}, Edges: []graph.Edge{{To: "done"}}},
 		exitNode("done"),
 	)
 	return testGraph(nodes...)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,27 @@ var testSchema = json.RawMessage(`{
 	"type":"object",
 	"properties":{"next":{"const":"done"},"notes":{"type":"string"}},
 	"required":["next","notes"],
+	"additionalProperties":false
+}`)
+
+var optionalVerdictSchema = json.RawMessage(`{
+	"type":"object",
+	"properties":{
+		"verdict":{"type":"string","enum":["ok","steer"]},
+		"target":{"type":"string","enum":["build","verify"]},
+		"message":{"type":"string"}
+	},
+	"required":["verdict"],
+	"additionalProperties":false
+}`)
+
+var requiredNullableVerdictSchema = json.RawMessage(`{
+	"type":"object",
+	"properties":{
+		"verdict":{"type":["string","null"]},
+		"target":{"type":"string"}
+	},
+	"required":["verdict"],
 	"additionalProperties":false
 }`)
 
@@ -75,6 +97,63 @@ func TestAdapterRetainsFreshProcessThenResumesWithCompleteEvents(t *testing.T) {
 		t.Fatalf("resume pid=%d start pid=%d second turn pid=%d", resume.PID, start.PID, secondTurn.PID)
 	}
 	assertTurnStartParams(t, firstTurn.Params, workdir)
+}
+
+func TestAdapterCodexStrictSchemaCompatibilityPreservesCallerSemantics(t *testing.T) {
+	adapter, logPath := newProtocolTestAdapter(t)
+	defer adapter.Close()
+	workdir := t.TempDir()
+	sessionID, createErr := adapter.CreateSession("gpt-test", workdir)
+	if createErr != nil {
+		t.Fatal(createErr)
+	}
+
+	input := validInput(sessionID, workdir, "optional null verdict")
+	input.OutputSchema = optionalVerdictSchema
+	result, runErr := adapter.RunTurn(input, func(harness.Event) {})
+	if runErr != nil {
+		t.Fatalf("optional verdict RunTurn() error = %v", runErr)
+	}
+	if len(result) != 2 || result["verdict"] != "ok" || result["message"] != "observed" {
+		t.Fatalf("normalized optional verdict = %#v", result)
+	}
+	if _, exists := result["target"]; exists {
+		t.Fatalf("optional null target was retained: %#v", result)
+	}
+	assertCodexVerdictSchema(t, nthRecord(t, readProtocolLog(t, logPath), "turn/start", 0).Params)
+
+	input = validInput(sessionID, workdir, "required nullable verdict")
+	input.OutputSchema = requiredNullableVerdictSchema
+	result, runErr = adapter.RunTurn(input, func(harness.Event) {})
+	if runErr != nil {
+		t.Fatalf("required nullable verdict RunTurn() error = %v", runErr)
+	}
+	if value, exists := result["verdict"]; !exists || value != nil {
+		t.Fatalf("required null verdict was stripped: %#v", result)
+	}
+	if _, exists := result["target"]; exists {
+		t.Fatalf("optional null target was retained: %#v", result)
+	}
+}
+
+func TestCodexSchemaWithoutPropertiesPassesThrough(t *testing.T) {
+	raw := json.RawMessage(`{"type":"object","additionalProperties":true}`)
+	input := validInput("thread", t.TempDir(), "empty object schema")
+	input.OutputSchema = raw
+	params, optional, err := turnStartParams(input)
+	if err != nil {
+		t.Fatalf("turnStartParams() error = %v", err)
+	}
+	if len(optional) != 0 {
+		t.Fatalf("optional properties = %v, want none", optional)
+	}
+	var want map[string]any
+	if err := json.Unmarshal(raw, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(params.OutputSchema, want) {
+		t.Fatalf("output schema = %#v, want %#v", params.OutputSchema, want)
+	}
 }
 
 func TestAdapterInterruptTimeoutRecoveryAndActiveCompaction(t *testing.T) {
@@ -296,6 +375,63 @@ func assertTurnStartParams(t *testing.T, params map[string]any, workdir string) 
 	}
 }
 
+func assertCodexVerdictSchema(t *testing.T, params map[string]any) {
+	t.Helper()
+	outputSchema, ok := params["outputSchema"].(map[string]any)
+	if !ok {
+		t.Fatalf("outputSchema = %#v", params["outputSchema"])
+	}
+	required, _ := outputSchema["required"].([]any)
+	if !sameStringSet(required, []string{"verdict", "target", "message"}) {
+		t.Fatalf("Codex required = %#v", required)
+	}
+	properties, _ := outputSchema["properties"].(map[string]any)
+	verdict, _ := properties["verdict"].(map[string]any)
+	if verdict["type"] != "string" {
+		t.Fatalf("required verdict schema = %#v", verdict)
+	}
+	target, _ := properties["target"].(map[string]any)
+	if !sameStringSet(target["type"].([]any), []string{"string", "null"}) {
+		t.Fatalf("optional target type = %#v", target["type"])
+	}
+	if !containsNil(target["enum"].([]any)) {
+		t.Fatalf("optional target enum = %#v", target["enum"])
+	}
+	message, _ := properties["message"].(map[string]any)
+	if !sameStringSet(message["type"].([]any), []string{"string", "null"}) {
+		t.Fatalf("optional message type = %#v", message["type"])
+	}
+}
+
+func sameStringSet(values []any, want []string) bool {
+	if len(values) != len(want) {
+		return false
+	}
+	got := make(map[string]bool, len(values))
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			return false
+		}
+		got[text] = true
+	}
+	for _, value := range want {
+		if !got[value] {
+			return false
+		}
+	}
+	return true
+}
+
+func containsNil(values []any) bool {
+	for _, value := range values {
+		if value == nil {
+			return true
+		}
+	}
+	return false
+}
+
 func eventTypes(events []harness.Event) []any {
 	result := make([]any, 0, len(events))
 	for _, event := range events {
@@ -451,6 +587,12 @@ func emitCompletedProtocolTurn(writer *json.Encoder, turnID, prompt string) {
 		}),
 	})
 	result := fmt.Sprintf(`{"next":"done","notes":%q}`, prompt+" result")
+	switch prompt {
+	case "optional null verdict":
+		result = `{"verdict":"ok","target":null,"message":"observed"}`
+	case "required nullable verdict":
+		result = `{"verdict":null,"target":null}`
+	}
 	_ = writer.Encode(map[string]any{
 		"method": "item/completed",
 		"params": envelope(map[string]any{"id": "message-1", "type": "agentMessage", "text": result}),

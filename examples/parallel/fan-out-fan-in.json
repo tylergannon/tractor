@@ -4,35 +4,31 @@
   "defaults": {
     "timeout": "90s"
   },
+  "start": "prepare",
   "nodes": [
-    {
-      "id": "start",
-      "type": "start",
-      "edges": [{ "to": "prepare" }]
-    },
     {
       "id": "prepare",
       "type": "tool",
       "tool_command": "rm -rf tractor-fan-in-proof; rm -f parallel-left.txt parallel-right.txt",
-      "edges": [{ "to": "fan_out" }]
+      "on_success": "fan_out"
     },
     {
       "id": "fan_out",
       "type": "parallel",
       "max_parallel": 2,
-      "edges": [{ "to": "left" }, { "to": "right" }]
+      "branches": ["left", "right"]
     },
     {
       "id": "left",
       "type": "tool",
       "tool_command": "set -eu; started=$(date +%s); printf 'branch=left\nmarker=LEFT_ONLY\nstarted=%s\n' \"$started\" > parallel-left.txt; sleep 4; finished=$(date +%s); printf 'finished=%s\n' \"$finished\" >> parallel-left.txt; printf 'left completed\n'",
-      "edges": [{ "to": "combine" }]
+      "on_success": "combine"
     },
     {
       "id": "right",
       "type": "tool",
       "tool_command": "set -eu; started=$(date +%s); printf 'branch=right\nmarker=RIGHT_ONLY\nstarted=%s\n' \"$started\" > parallel-right.txt; sleep 4; finished=$(date +%s); printf 'finished=%s\n' \"$finished\" >> parallel-right.txt; printf 'right completed\n'",
-      "edges": [{ "to": "combine" }]
+      "on_success": "combine"
     },
     {
       "id": "combine",
@@ -48,11 +44,8 @@
       "id": "verify",
       "type": "tool",
       "tool_command": "set -eu; test ! -e parallel-left.txt; test ! -e parallel-right.txt; left=tractor-fan-in-proof/left.txt; right=tractor-fan-in-proof/right.txt; test -f \"$left\"; test -f \"$right\"; grep -qx 'branch=left' \"$left\"; grep -qx 'marker=LEFT_ONLY' \"$left\"; grep -qx 'branch=right' \"$right\"; grep -qx 'marker=RIGHT_ONLY' \"$right\"; ls=$(sed -n 's/^started=//p' \"$left\"); lf=$(sed -n 's/^finished=//p' \"$left\"); rs=$(sed -n 's/^started=//p' \"$right\"); rf=$(sed -n 's/^finished=//p' \"$right\"); test \"$ls\" -lt \"$rf\"; test \"$rs\" -lt \"$lf\"; grep -qx 'isolation=verified' tractor-fan-in-proof/summary.txt; grep -qx 'overlap=verified' tractor-fan-in-proof/summary.txt; printf 'parallel fan-in verified\n'",
-      "edges": [{ "to": "exit" }]
-    },
-    {
-      "id": "exit",
-      "type": "exit"
+
+      "on_success": "success"
     }
   ]
 }

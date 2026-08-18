@@ -1,0 +1,25 @@
+{
+  "name": "supervisor-stop-proof",
+  "goal": "prove supervisor shutdown",
+  "start": "work",
+  "nodes": [
+    {
+      "id": "work",
+      "type": "tool",
+      "tool_command": "sleep 60",
+      "on_success": "success",
+      "timeout": "90s"
+    },
+    {
+      "id": "coach",
+      "type": "supervisor",
+      "prompt": "Run one foreground shell command that sleeps for 60 seconds; wait for it; then return verdict ok.",
+      "supervises": ["work"],
+      "interval": "1s",
+      "timeout": "90s",
+      "llm_provider": "anthropic",
+      "llm_model": "fable",
+      "reasoning_effort": "low"
+    }
+  ]
+}

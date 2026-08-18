@@ -36,7 +36,7 @@ func newAnalysis(g graph.Graph, opts options) *analysis {
 	}
 	for _, node := range g.Nodes {
 		from := node.Base().ID
-		for _, edge := range node.Base().Edges {
+		for _, edge := range routingEdges(node) {
 			record := edgeRecord{from: from, edge: edge}
 			a.out[from] = append(a.out[from], record)
 			a.in[edge.To] = append(a.in[edge.To], record)
@@ -47,15 +47,12 @@ func newAnalysis(g graph.Graph, opts options) *analysis {
 
 func (a *analysis) builtInDiagnostics() []Diagnostic {
 	rules := []func() []Diagnostic{
-		a.startNode,
-		a.startSingleOutgoing,
-		a.terminalNode,
+		a.startTarget,
+		a.terminalReachable,
 		a.reachability,
 		a.edgeTargetExists,
-		a.startNoIncoming,
-		a.exitNoOutgoing,
+		a.edgeTargetUnique,
 		a.deadEnd,
-		a.toolRouting,
 		a.parallelFanIn,
 		a.branchDisjoint,
 		a.noNestedParallel,
@@ -68,7 +65,9 @@ func (a *analysis) builtInDiagnostics() []Diagnostic {
 		a.maxParallelPositive,
 		a.maxRetriesNonnegative,
 		a.edgeConditionMissing,
-		a.typeKnown,
+		a.supervisesValid,
+		a.supervisorNotTargeted,
+		a.supervisorCycle,
 		a.fidelityValid,
 		a.threadIDCollision,
 		a.threadHarnessConsistent,
@@ -84,11 +83,11 @@ func (a *analysis) builtInDiagnostics() []Diagnostic {
 }
 
 type branchAnalysis struct {
-	root       string
-	nodes      map[string]struct{}
-	firstFanIn map[string]struct{}
-	hitExit    bool
-	unresolved bool
+	root        string
+	nodes       map[string]struct{}
+	firstFanIn  map[string]struct{}
+	hitTerminal bool
+	unresolved  bool
 }
 
 type parallelBlock struct {
@@ -118,8 +117,8 @@ func (a *analysis) parallelBlocks() []*parallelBlock {
 
 func (a *analysis) analyzeParallel(node *graph.ParallelNode) *parallelBlock {
 	block := &parallelBlock{node: node, disjoint: true, union: map[string]struct{}{}}
-	for _, edge := range node.Edges {
-		block.branches = append(block.branches, a.walkToFirstFanIn(edge.To))
+	for _, target := range node.Branches {
+		block.branches = append(block.branches, a.walkToFirstFanIn(target))
 	}
 
 	if len(block.branches) > 0 {
@@ -153,7 +152,7 @@ func (a *analysis) analyzeParallel(node *graph.ParallelNode) *parallelBlock {
 		block.converged = true
 		for i := range block.branches {
 			branch := &block.branches[i]
-			if branch.hitExit || branch.unresolved ||
+			if branch.hitTerminal || branch.unresolved ||
 				!a.allNodesReachFanIn(branch.nodes, block.candidate) {
 				block.converged = false
 			}
@@ -188,6 +187,10 @@ func (a *analysis) walkToFirstFanIn(root string) branchAnalysis {
 			continue
 		}
 		seen[id] = struct{}{}
+		if graph.IsPseudoTarget(id) {
+			branch.hitTerminal = true
+			continue
+		}
 		node, exists := a.byID[id]
 		if !exists {
 			branch.unresolved = true
@@ -197,13 +200,14 @@ func (a *analysis) walkToFirstFanIn(root string) branchAnalysis {
 		case *graph.FanInNode:
 			branch.firstFanIn[id] = struct{}{}
 			continue
-		case *graph.ExitNode:
-			branch.hitExit = true
-			continue
 		}
 		branch.nodes[id] = struct{}{}
 		edges := a.out[id]
 		for _, edge := range slices.Backward(edges) {
+			if graph.IsPseudoTarget(edge.edge.To) {
+				branch.hitTerminal = true
+				continue
+			}
 			if _, exists := a.byID[edge.edge.To]; !exists {
 				branch.unresolved = true
 				continue
@@ -212,6 +216,18 @@ func (a *analysis) walkToFirstFanIn(root string) branchAnalysis {
 		}
 	}
 	return branch
+}
+
+func routingEdges(node graph.Node) []graph.Edge {
+	if edges := graph.ChoiceEdges(node); edges != nil {
+		return edges
+	}
+	targets := graph.RoutingTargets(node)
+	edges := make([]graph.Edge, len(targets))
+	for i, target := range targets {
+		edges[i] = graph.Edge{To: target}
+	}
+	return edges
 }
 
 func (a *analysis) allNodesReachFanIn(nodes map[string]struct{}, fanIn string) bool {

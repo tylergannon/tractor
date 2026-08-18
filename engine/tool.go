@@ -129,24 +129,13 @@ func toolTimeout(node *graph.ToolNode) (time.Duration, error) {
 }
 
 func toolRoute(node *graph.ToolNode, exitCode int) (string, *harness.Error) {
-	if len(node.Edges) < 1 || len(node.Edges) > 2 {
-		return "", terminalError("invalid tool routing on " + node.ID)
-	}
 	if exitCode != 0 {
-		if node.OnFail == "" {
+		if !node.OnError.Present {
 			return "", terminalError(fmt.Sprintf("%s exited %d", node.ToolCommand, exitCode))
 		}
-		return node.OnFail, nil
+		return node.OnError.Value, nil
 	}
-	if len(node.Edges) == 1 {
-		return node.Edges[0].To, nil
-	}
-	for _, edge := range node.Edges {
-		if edge.To != node.OnFail {
-			return edge.To, nil
-		}
-	}
-	return "", terminalError("invalid tool success route on " + node.ID)
+	return node.OnSuccess, nil
 }
 
 func offeredTarget(offered []graph.Edge, target string) bool {

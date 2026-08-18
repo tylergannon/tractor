@@ -168,18 +168,6 @@ func __jsonUnmarshal__graph__Node__Graph__Nodes(data []byte) (Node, error) {
 		return nil, __jsonschema__unmarshalDiscriminatorError(_tempDiscriminator, err)
 	}
 	switch discriminator {
-	case "start":
-		var obj StartNode
-		if err = json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		return &obj, nil
-	case "exit":
-		var obj ExitNode
-		if err = json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		return &obj, nil
 	case "codergen":
 		var obj CodergenNode
 		if err = json.Unmarshal(data, &obj); err != nil {
@@ -204,18 +192,14 @@ func __jsonUnmarshal__graph__Node__Graph__Nodes(data []byte) (Node, error) {
 			return nil, err
 		}
 		return &obj, nil
-	case "__custom__":
-		var obj CustomNode
+	case "supervisor":
+		var obj SupervisorNode
 		if err = json.Unmarshal(data, &obj); err != nil {
 			return nil, err
 		}
 		return &obj, nil
 	default:
-		var obj CustomNode
-		if err = json.Unmarshal(data, &obj); err != nil {
-			return nil, err
-		}
-		return &obj, nil
+		return nil, fmt.Errorf("unknown discriminator: %s", discriminator)
 	}
 }
 

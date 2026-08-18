@@ -35,10 +35,9 @@ type Diagnostic struct {
 // and model values. It must use the same routing as execution.
 type HarnessResolver func(provider, model string) (string, error)
 
-// Options supplies the runtime knowledge required by implementation-dependent
-// lint rules. Built-in types and fidelity modes are always known.
+// Options supplies runtime knowledge required by implementation-dependent lint
+// rules. The three specified fidelity modes are always known.
 type Options struct {
-	KnownCustomTypes  []string
 	SupportedFidelity []string
 	ResolveHarness    HarnessResolver
 }
@@ -55,7 +54,7 @@ type Validator struct {
 }
 
 // New constructs a validator. Empty options use the three specified fidelity
-// modes and no registered custom handlers.
+// modes.
 func New(opts Options) *Validator {
 	return &Validator{options: normalizeOptions(opts)}
 }
@@ -128,19 +127,11 @@ func (e *ValidationError) Error() string {
 }
 
 type options struct {
-	knownTypes        map[string]struct{}
 	supportedFidelity map[string]struct{}
 	resolveHarness    HarnessResolver
 }
 
 func normalizeOptions(opts Options) options {
-	knownTypes := map[string]struct{}{
-		"start": {}, "exit": {}, "codergen": {}, "tool": {},
-		"parallel": {}, "parallel.fan_in": {},
-	}
-	for _, nodeType := range opts.KnownCustomTypes {
-		knownTypes[nodeType] = struct{}{}
-	}
 	supported := map[string]struct{}{
 		"full": {}, "compacted": {}, "none": {},
 	}
@@ -148,7 +139,6 @@ func normalizeOptions(opts Options) options {
 		supported[fidelity] = struct{}{}
 	}
 	return options{
-		knownTypes:        knownTypes,
 		supportedFidelity: supported,
 		resolveHarness:    opts.ResolveHarness,
 	}

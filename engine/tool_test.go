@@ -17,7 +17,7 @@ func TestToolHandlerRunsShellInWorkdirAndCombinesOutput(t *testing.T) {
 	stageDir := t.TempDir()
 	node := toolNode("pwd; printf 'stdout-line\n'; printf 'stderr-line\n' >&2", "done")
 
-	outcome, runErr := toolHandler(node, node.Edges, toolScope(workdir, stageDir, nil), nil)
+	outcome, runErr := toolHandler(node, routingEdges(node), toolScope(workdir, stageDir, nil), nil)
 	if runErr != nil {
 		t.Fatal(runErr)
 	}
@@ -43,26 +43,29 @@ func TestToolHandlerExitCodeRouting(t *testing.T) {
 	tests := []struct {
 		name        string
 		command     string
-		edges       []graph.Edge
+		onSuccess   string
 		onFail      string
 		wantNext    string
 		wantMessage string
 	}{
-		{name: "one edge success", command: "exit 0", edges: []graph.Edge{{To: "done"}}, wantNext: "done"},
-		{name: "one edge assertion failure", command: "exit 7", edges: []graph.Edge{{To: "done"}}, wantMessage: "exited 7"},
-		{name: "one edge advisory failure", command: "exit 7", edges: []graph.Edge{{To: "done"}}, onFail: "done", wantNext: "done"},
-		{name: "two edge success", command: "exit 0", edges: []graph.Edge{{To: "passed"}, {To: "failed"}}, onFail: "failed", wantNext: "passed"},
-		{name: "two edge failure", command: "exit 9", edges: []graph.Edge{{To: "passed"}, {To: "failed"}}, onFail: "failed", wantNext: "failed"},
+		{name: "success", command: "exit 0", onSuccess: "done", wantNext: "done"},
+		{name: "assertion failure", command: "exit 7", onSuccess: "done", wantMessage: "exited 7"},
+		{name: "advisory failure", command: "exit 7", onSuccess: "done", onFail: "done", wantNext: "done"},
+		{name: "separate success", command: "exit 0", onSuccess: "passed", onFail: "failed", wantNext: "passed"},
+		{name: "separate failure", command: "exit 9", onSuccess: "passed", onFail: "failed", wantNext: "failed"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			node := &graph.ToolNode{
-				NodeBase:    graph.NodeBase{ID: "tool", Edges: test.edges},
+				NodeBase:    graph.NodeBase{ID: "tool"},
 				ToolCommand: test.command,
-				OnFail:      test.onFail,
+				OnSuccess:   test.onSuccess,
+			}
+			if test.onFail != "" {
+				node.OnError = optional(test.onFail)
 			}
 			stageDir := t.TempDir()
-			outcome, runErr := toolHandler(node, test.edges, toolScope(t.TempDir(), stageDir, nil), nil)
+			outcome, runErr := toolHandler(node, routingEdges(node), toolScope(t.TempDir(), stageDir, nil), nil)
 			if test.wantMessage != "" {
 				if runErr == nil || runErr.Category != harness.ErrorTerminal || !strings.Contains(runErr.Message, test.wantMessage) {
 					t.Fatalf("error = %#v", runErr)
@@ -83,7 +86,7 @@ func TestToolHandlerTimeoutInterruptsPromptly(t *testing.T) {
 	node := toolNode("sleep 10", "done")
 	node.Timeout = jsonschema.Optional[graph.Duration]{Present: true, Value: "50ms"}
 	started := time.Now()
-	_, runErr := toolHandler(node, node.Edges, toolScope(t.TempDir(), t.TempDir(), nil), nil)
+	_, runErr := toolHandler(node, routingEdges(node), toolScope(t.TempDir(), t.TempDir(), nil), nil)
 	assertPromptInterruption(t, started, runErr, "timed out")
 }
 
@@ -99,7 +102,7 @@ func TestToolHandlerStopInterruptsPromptly(t *testing.T) {
 	finished := make(chan response, 1)
 	started := time.Now()
 	go func() {
-		outcome, runErr := toolHandler(node, node.Edges, toolScope(workdir, stageDir, stop), nil)
+		outcome, runErr := toolHandler(node, routingEdges(node), toolScope(workdir, stageDir, stop), nil)
 		finished <- response{outcome: outcome, err: runErr}
 	}()
 	waitForToolOutput(t, filepath.Join(stageDir, "tool.log"), "started")
@@ -132,9 +135,10 @@ func TestToolHandlerRejectsExhaustedMechanicalRoute(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			node := &graph.ToolNode{
-				NodeBase:    graph.NodeBase{ID: "tool", Edges: []graph.Edge{{To: "passed"}, {To: "failed"}}},
+				NodeBase:    graph.NodeBase{ID: "tool"},
 				ToolCommand: test.command,
-				OnFail:      "failed",
+				OnSuccess:   "passed",
+				OnError:     optional("failed"),
 			}
 			_, runErr := toolHandler(node, test.offered, toolScope(t.TempDir(), t.TempDir(), nil), nil)
 			if runErr == nil || runErr.Category != harness.ErrorTerminal ||
@@ -148,7 +152,7 @@ func TestToolHandlerRejectsExhaustedMechanicalRoute(t *testing.T) {
 func TestToolHandlerRejectsInvalidInputs(t *testing.T) {
 	t.Run("empty command", func(t *testing.T) {
 		node := toolNode(" ", "done")
-		_, runErr := toolHandler(node, node.Edges, toolScope(t.TempDir(), t.TempDir(), nil), nil)
+		_, runErr := toolHandler(node, routingEdges(node), toolScope(t.TempDir(), t.TempDir(), nil), nil)
 		if runErr == nil || runErr.Category != harness.ErrorTerminal || !strings.Contains(runErr.Message, "no tool_command") {
 			t.Fatalf("error = %#v", runErr)
 		}
@@ -157,7 +161,7 @@ func TestToolHandlerRejectsInvalidInputs(t *testing.T) {
 	t.Run("invalid timeout", func(t *testing.T) {
 		node := toolNode("true", "done")
 		node.Timeout = jsonschema.Optional[graph.Duration]{Present: true, Value: "soon"}
-		_, runErr := toolHandler(node, node.Edges, toolScope(t.TempDir(), t.TempDir(), nil), nil)
+		_, runErr := toolHandler(node, routingEdges(node), toolScope(t.TempDir(), t.TempDir(), nil), nil)
 		if runErr == nil || runErr.Category != harness.ErrorTerminal || !strings.Contains(runErr.Message, "parse tool timeout") {
 			t.Fatalf("error = %#v", runErr)
 		}
@@ -168,7 +172,7 @@ func TestToolHandlerRejectsInvalidInputs(t *testing.T) {
 		stop.Stop()
 		node := toolNode("touch should-not-exist", "done")
 		workdir := t.TempDir()
-		_, runErr := toolHandler(node, node.Edges, toolScope(workdir, t.TempDir(), stop), nil)
+		_, runErr := toolHandler(node, routingEdges(node), toolScope(workdir, t.TempDir(), stop), nil)
 		if runErr == nil || runErr.Category != harness.ErrorInterrupted {
 			t.Fatalf("error = %#v", runErr)
 		}
@@ -180,8 +184,9 @@ func TestToolHandlerRejectsInvalidInputs(t *testing.T) {
 
 func toolNode(command, target string) *graph.ToolNode {
 	return &graph.ToolNode{
-		NodeBase:    graph.NodeBase{ID: "tool", Edges: []graph.Edge{{To: target}}},
+		NodeBase:    graph.NodeBase{ID: "tool"},
 		ToolCommand: command,
+		OnSuccess:   target,
 	}
 }
 

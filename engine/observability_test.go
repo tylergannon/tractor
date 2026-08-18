@@ -26,11 +26,9 @@ import (
 func TestRunnerTimelineNarratesRetriesParallelBranchesAndCheckpoints(t *testing.T) {
 	repo := newGitTestRepository(t)
 	root := t.TempDir()
-	retry := customNode("retry", "retry_task", []graph.Edge{{To: "fanout"}}, 0).(*graph.CustomNode)
+	retry := customNode("retry", "retry_task", []graph.Edge{{To: "fanout"}}, 0).(*graph.CodergenNode)
 	retry.MaxRetries = jsonschema.Optional[int]{Present: true, Value: 1}
-	parallel := &graph.ParallelNode{NodeBase: graph.NodeBase{
-		ID: "fanout", Edges: []graph.Edge{{To: "left"}, {To: "right"}},
-	}}
+	parallel := &graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}, Branches: []string{"left", "right"}}
 	parallel.MaxParallel = jsonschema.Optional[int]{Present: true, Value: 1}
 	pipeline := testGraph(
 		startNode("start", "retry"),
@@ -38,20 +36,17 @@ func TestRunnerTimelineNarratesRetriesParallelBranchesAndCheckpoints(t *testing.
 		parallel,
 		customNode("left", "task", []graph.Edge{{To: "join"}}, 0),
 		customNode("right", "task", []graph.Edge{{To: "join"}}, 0),
-		&graph.FanInNode{NodeBase: graph.NodeBase{ID: "join", Edges: []graph.Edge{{To: "done"}}}},
+		&graph.FanInNode{NodeBase: graph.NodeBase{ID: "join"}, Edges: []graph.Edge{{To: "done"}}},
 		exitNode("done"),
 	)
 	pipeline.Name = "timeline-test"
 
 	registry := NewRegistry()
 	var retryCalls atomic.Int32
-	registry.Register("retry_task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
-		if retryCalls.Add(1) == 1 {
+	registry.Register("codergen", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
+		if node.Base().ID == "retry" && retryCalls.Add(1) == 1 {
 			return harness.Outcome{}, &harness.Error{Category: harness.ErrorRetryable, Message: "try again"}
 		}
-		return harness.Outcome{Notes: "retried"}, nil
-	}))
-	registry.Register("task", HandlerFunc(func(node graph.Node, _ []graph.Edge, _ ExecutionScope, _ *graph.Graph) (harness.Outcome, *harness.Error) {
 		return harness.Outcome{Notes: node.Base().ID}, nil
 	}))
 	registry.Register("parallel.fan_in", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
@@ -74,13 +69,12 @@ func TestRunnerTimelineNarratesRetriesParallelBranchesAndCheckpoints(t *testing.
 	}
 	want := []any{
 		"PipelineStarted", "CheckpointSaved",
-		"StageStarted", "StageCompleted", "CheckpointSaved",
 		"StageStarted", "StageFailed", "StageRetrying", "StageStarted", "StageCompleted", "CheckpointSaved",
 		"StageStarted", "ParallelStarted",
 		"ParallelBranchStarted", "StageStarted", "StageCompleted", "ParallelBranchCompleted",
 		"ParallelBranchStarted", "StageStarted", "StageCompleted", "ParallelBranchCompleted",
 		"ParallelCompleted", "StageCompleted", "CheckpointSaved",
-		"StageStarted", "StageCompleted", "CheckpointSaved", "CheckpointSaved", "PipelineCompleted",
+		"StageStarted", "StageCompleted", "CheckpointSaved", "PipelineCompleted",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("timeline event types =\n%v\nwant\n%v", got, want)
@@ -109,18 +103,18 @@ func TestRunnerTimelineNarratesRetriesParallelBranchesAndCheckpoints(t *testing.
 	if len(branchWorkdirs) != 2 || branchWorkdirs["left"] == branchWorkdirs["right"] {
 		t.Fatalf("branch workdirs = %#v", branchWorkdirs)
 	}
-	if events[6]["will_retry"] != true || events[7]["attempt"] != float64(2) {
-		t.Fatalf("retry events = %#v, %#v", events[6], events[7])
+	if events[3]["will_retry"] != true || events[4]["attempt"] != float64(2) {
+		t.Fatalf("retry events = %#v, %#v", events[3], events[4])
 	}
-	if events[12]["branch_count"] != float64(2) || events[21]["branch_count"] != float64(2) {
-		t.Fatalf("parallel events = %#v, %#v", events[12], events[21])
+	if events[9]["branch_count"] != float64(2) || events[18]["branch_count"] != float64(2) {
+		t.Fatalf("parallel events = %#v, %#v", events[9], events[18])
 	}
 }
 
 func TestRunnerTimelineRecordsPipelineFailure(t *testing.T) {
 	root := t.TempDir()
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		return harness.Outcome{}, terminalError("failed deliberately")
 	}))
 	pipeline := testGraph(startNode("start", "work"), customNode("work", "task", []graph.Edge{{To: "done"}}, 0), exitNode("done"))
@@ -143,7 +137,7 @@ func TestControlSocketAcceptsSteeringAndAuditsActiveStage(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		close(entered)
 		<-release
 		return harness.Outcome{Notes: "done"}, nil
@@ -249,7 +243,7 @@ func TestControlRejectsTopLevelParallelBeforeBackendHandoff(t *testing.T) {
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
 	registry := NewRegistry()
-	registry.Register("task", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
+	registry.Register("codergen", HandlerFunc(func(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
 		entered <- struct{}{}
 		<-release
 		return harness.Outcome{Notes: "done"}, nil
@@ -297,6 +291,10 @@ func (*steeringBackend) Run(harness.CodergenTurn) (harness.Outcome, *harness.Err
 	return harness.Outcome{}, nil
 }
 
+func (*steeringBackend) RunSupervisor(harness.SupervisorTurn) (harness.Verdict, *harness.Error) {
+	return harness.Verdict{}, nil
+}
+
 func (b *steeringBackend) Steer(parts []harness.ContentPart) harness.SteerStatus {
 	b.calls.Add(1)
 	b.mu.Lock()
@@ -308,6 +306,8 @@ func (b *steeringBackend) Steer(parts []harness.ContentPart) harness.SteerStatus
 func (*steeringBackend) InterruptAll() {}
 
 func (*steeringBackend) Bindings() map[string]harness.ThreadBinding { return nil }
+
+func (*steeringBackend) SetBindingOpened(harness.BindingOpened) {}
 
 func (b *steeringBackend) lastParts() []harness.ContentPart {
 	b.mu.Lock()

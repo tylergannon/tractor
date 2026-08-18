@@ -37,7 +37,7 @@ func TestFanInHandlerLoadsEvidenceAndDelegatesExactTurn(t *testing.T) {
 	offered := []graph.Edge{{To: "accept", Condition: "A candidate is ready"}, {To: "retry", Condition: "More work is needed"}}
 
 	outcome, runErr := NewFanInHandler(CodergenConfig{Backend: backend, DefaultModel: "system-model"}).Execute(
-		join, offered, ExecutionScope{Workdir: "/main", StageDir: stageDir, Goal: "release", Stop: NewStopSignal()}, pipeline,
+		join, offered, ExecutionScope{Workdir: "/main", StageDir: stageDir, RunLog: filepath.Join(stageDir, "events.jsonl"), Goal: "release", Stop: NewStopSignal()}, pipeline,
 	)
 	if runErr != nil {
 		t.Fatal(runErr)
@@ -104,7 +104,7 @@ func TestFanInHandlerRejectsMissingMalformedOrEmptyEvidenceBeforeBackend(t *test
 			backend := &captureBackend{outcome: harness.Outcome{Notes: "must not run"}}
 			join := &graph.FanInNode{NodeBase: graph.NodeBase{ID: "join"}}
 			_, runErr := NewFanInHandler(CodergenConfig{Backend: backend, DefaultModel: "gpt-5.3-codex"}).Execute(
-				join, []graph.Edge{{To: "accept"}}, ExecutionScope{Workdir: "/main", StageDir: stageDir, Stop: NewStopSignal()}, fanInGraph(join),
+				join, []graph.Edge{{To: "accept"}}, ExecutionScope{Workdir: "/main", StageDir: stageDir, RunLog: filepath.Join(stageDir, "events.jsonl"), Stop: NewStopSignal()}, fanInGraph(join),
 			)
 			if runErr == nil || runErr.Category != harness.ErrorTerminal || !strings.Contains(runErr.Message, test.want) {
 				t.Fatalf("error = %#v", runErr)
@@ -127,7 +127,7 @@ func TestFanInHandlerRejectsEvidenceForUnknownBranch(t *testing.T) {
 	join := &graph.FanInNode{NodeBase: graph.NodeBase{ID: "join"}}
 	backend := &captureBackend{}
 	_, runErr := NewFanInHandler(CodergenConfig{Backend: backend, DefaultModel: "gpt-5.3-codex"}).Execute(
-		join, []graph.Edge{{To: "accept"}}, ExecutionScope{Workdir: "/main", StageDir: stageDir, Stop: NewStopSignal()}, fanInGraph(join),
+		join, []graph.Edge{{To: "accept"}}, ExecutionScope{Workdir: "/main", StageDir: stageDir, RunLog: filepath.Join(stageDir, "events.jsonl"), Stop: NewStopSignal()}, fanInGraph(join),
 	)
 	if runErr == nil || !strings.Contains(runErr.Message, `unknown branch "stranger"`) || len(backend.turns) != 0 {
 		t.Fatalf("error = %#v turns=%d", runErr, len(backend.turns))
@@ -141,15 +141,15 @@ func TestFanInHandlerRejectsAmbiguousOwnerBeforeBackend(t *testing.T) {
 	}
 	join := &graph.FanInNode{NodeBase: graph.NodeBase{ID: "join"}}
 	pipeline := &graph.Graph{Nodes: []graph.Node{
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "first", Edges: []graph.Edge{{To: "left"}}}},
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "second", Edges: []graph.Edge{{To: "right"}}}},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "first"}, Branches: []string{"left"}},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "second"}, Branches: []string{"right"}},
 		customNode("left", "task", []graph.Edge{{To: "join"}}, 0),
 		customNode("right", "task", []graph.Edge{{To: "join"}}, 0),
 		join,
 	}}
 	backend := &captureBackend{}
 	_, runErr := NewFanInHandler(CodergenConfig{Backend: backend, DefaultModel: "gpt-5.3-codex"}).Execute(
-		join, []graph.Edge{{To: "accept"}}, ExecutionScope{Workdir: "/main", StageDir: stageDir, Stop: NewStopSignal()}, pipeline,
+		join, []graph.Edge{{To: "accept"}}, ExecutionScope{Workdir: "/main", StageDir: stageDir, RunLog: filepath.Join(stageDir, "events.jsonl"), Stop: NewStopSignal()}, pipeline,
 	)
 	if runErr == nil || !strings.Contains(runErr.Message, "found 2") || len(backend.turns) != 0 {
 		t.Fatalf("error = %#v turns=%d", runErr, len(backend.turns))
@@ -158,7 +158,7 @@ func TestFanInHandlerRejectsAmbiguousOwnerBeforeBackend(t *testing.T) {
 
 func fanInGraph(join *graph.FanInNode) *graph.Graph {
 	return &graph.Graph{Defaults: graph.Defaults{LLMModel: optional("gpt-5.2")}, Nodes: []graph.Node{
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout", Edges: []graph.Edge{{To: "branch-a"}, {To: "branch-b"}}}},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}, Branches: []string{"branch-a", "branch-b"}},
 		customNode("branch-a", "task", []graph.Edge{{To: "join"}}, 0),
 		customNode("branch-b", "task", []graph.Edge{{To: "join"}}, 0),
 		join,

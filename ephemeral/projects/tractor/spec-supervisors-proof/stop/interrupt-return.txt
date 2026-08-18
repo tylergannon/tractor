@@ -1,0 +1,1 @@
+Ctrl-C to foreground command return: 5.0 seconds

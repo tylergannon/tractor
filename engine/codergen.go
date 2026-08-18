@@ -39,7 +39,7 @@ func (h *CodergenHandler) Execute(node graph.Node, offered []graph.Edge, scope E
 	}
 
 	prompt := codergen.PromptValue(codergen.DisplayLabel())
-	prompt = strings.ReplaceAll(prompt, "$goal", scope.Goal)
+	prompt = expandPrompt(prompt, scope.Goal)
 	return h.executeTurn(codergen, &codergen.LLMNodeFields, offered, scope, pipeline, prompt)
 }
 
@@ -52,7 +52,11 @@ func (h *CodergenHandler) executeTurn(node graph.Node, fields *graph.LLMNodeFiel
 	if err != nil {
 		return harness.Outcome{}, err
 	}
-	if validationErr := harness.ValidateCodergenTurn(turn); validationErr != nil {
+	validationTurn := turn
+	if h.config.Backend == nil && validationTurn.RunLog == "" {
+		validationTurn.RunLog = filepath.Join(scope.StageDir, "simulation.jsonl")
+	}
+	if validationErr := harness.ValidateCodergenTurn(validationTurn); validationErr != nil {
 		return harness.Outcome{}, validationErr
 	}
 	var outcome harness.Outcome
@@ -106,6 +110,7 @@ func (h *CodergenHandler) turn(node graph.Node, fields *graph.LLMNodeFields, off
 		Fidelity:        harness.FidelityMode(fidelity),
 		ThreadKey:       threadKey,
 		Workdir:         scope.Workdir,
+		RunLog:          scope.RunLog,
 		Timeout:         timeout,
 	}, nil
 }

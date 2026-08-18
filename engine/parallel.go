@@ -1,11 +1,8 @@
 package engine
 
 import (
-	"bufio"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -56,10 +53,6 @@ func (h *parallelHandler) Execute(node graph.Node, offered []graph.Edge, scope E
 		return harness.Outcome{}, terminalError(err.Error())
 	}
 
-	indexOffset, err := segmentIndexOffset(h.store.root)
-	if err != nil {
-		return harness.Outcome{}, terminalError(err.Error())
-	}
 	frozen, err := freezeGitWorkspaceWithStop(scope.Workdir, scope.Stop)
 	if err != nil {
 		return harness.Outcome{}, parallelExecutionError(err)
@@ -74,15 +67,11 @@ func (h *parallelHandler) Execute(node graph.Node, offered []graph.Edge, scope E
 	}
 
 	results, eventErr := h.runBranches(worktrees, join.ID, limit)
-	segmentErr := attributeBranchSegments(h.store.root, indexOffset, results)
 	if err := writeJSON(filepath.Join(scope.StageDir, "branches.json"), results); err != nil {
 		return harness.Outcome{}, terminalError(fmt.Sprintf("write branch evidence: %v", err))
 	}
 	if eventErr != nil {
 		return harness.Outcome{}, terminalError(eventErr.Error())
-	}
-	if segmentErr != nil {
-		return harness.Outcome{}, terminalError(segmentErr.Error())
 	}
 	if err := h.store.appendTimeline(timelineEvent{
 		"type":         "ParallelCompleted",
@@ -179,11 +168,6 @@ func (r *Runner) walkBranch(currentID, joinID, workdir string, state *engineStat
 			result.Error = terminalError(fmt.Sprintf("unknown node: %s", currentID))
 			return result
 		}
-		if node.NodeType() == "exit" {
-			result.Outcome = nil
-			result.Error = terminalError(fmt.Sprintf("branch reached exit %s before fan-in %s", currentID, joinID))
-			return result
-		}
 		if r.stop.IsSet() {
 			result.Outcome = nil
 			result.Error = interruptedError("stopped by operator")
@@ -193,6 +177,7 @@ func (r *Runner) walkBranch(currentID, joinID, workdir string, state *engineStat
 		result.Path = append(result.Path, currentID)
 		execution, err := r.executeNode(node, state, store, workdir, result.BranchID)
 		result.StageDirs = append(result.StageDirs, execution.stageDirs...)
+		result.Segments = append(result.Segments, execution.segments...)
 		if execution.outcome.Notes != "" {
 			result.Notes = execution.outcome.Notes
 		}
@@ -239,53 +224,4 @@ func parallelFanIn(pipeline graph.Graph, parallelID string) (*graph.FanInNode, e
 		return nil, fmt.Errorf("parallel node %q has no designated fan-in", parallelID)
 	}
 	return join, nil
-}
-
-func segmentIndexOffset(logsRoot string) (int64, error) {
-	info, err := os.Stat(filepath.Join(logsRoot, "events", "index.jsonl"))
-	if os.IsNotExist(err) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("inspect run-log index: %w", err)
-	}
-	return info.Size(), nil
-}
-
-func attributeBranchSegments(logsRoot string, offset int64, results []BranchResult) error {
-	file, err := os.Open(filepath.Join(logsRoot, "events", "index.jsonl"))
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("open run-log index: %w", err)
-	}
-	defer func() { _ = file.Close() }()
-	if _, err := file.Seek(offset, 0); err != nil {
-		return fmt.Errorf("seek run-log index: %w", err)
-	}
-
-	branchByNode := make(map[string]int)
-	for index, result := range results {
-		for _, nodeID := range result.Path {
-			branchByNode[nodeID] = index
-		}
-	}
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		var entry struct {
-			NodeID string `json:"node_id"`
-			Path   string `json:"path"`
-		}
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			return fmt.Errorf("decode run-log index: %w", err)
-		}
-		if index, ok := branchByNode[entry.NodeID]; ok {
-			results[index].Segments = append(results[index].Segments, entry.Path)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read run-log index: %w", err)
-	}
-	return nil
 }

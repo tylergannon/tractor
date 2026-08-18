@@ -162,7 +162,7 @@ func (r *Runner) serveControl(store *runStore, response http.ResponseWriter, req
 		response.WriteHeader(http.StatusConflict)
 		return
 	}
-	if err := store.appendSteering(r.active.stageDir, parts); err != nil {
+	if err := store.appendSteering(r.active.stageDir, parts, ""); err != nil {
 		response.WriteHeader(http.StatusInternalServerError)
 		return
 	}

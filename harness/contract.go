@@ -77,6 +77,20 @@ type CodergenTurn struct {
 	Fidelity        FidelityMode
 	ThreadKey       string
 	Workdir         string
+	RunLog          string
+	Timeout         time.Duration
+}
+
+// SupervisorTurn is one advisory flush on a supervisor-owned thread.
+type SupervisorTurn struct {
+	NodeID          string
+	Parts           []ContentPart
+	OutputSchema    json.RawMessage
+	Model           string
+	Provider        string
+	ReasoningEffort string
+	Workdir         string
+	RunLog          string
 	Timeout         time.Duration
 }
 
@@ -84,6 +98,13 @@ type CodergenTurn struct {
 type Outcome struct {
 	Next  string `json:"next,omitempty"`
 	Notes string `json:"notes"`
+}
+
+// Verdict is the semantic result of an advisory supervisor turn.
+type Verdict struct {
+	Verdict string `json:"verdict"`
+	Target  string `json:"target,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // SteerStatus reports whether a backend accepted a steering handoff.
@@ -103,12 +124,18 @@ type ThreadBinding struct {
 	Workdir   string `json:"workdir"`
 }
 
+// BindingOpened is called after a new binding is published and before its
+// first turn is dispatched. Returning an Error prevents dispatch.
+type BindingOpened func(threadKey string, binding ThreadBinding) *Error
+
 // CodergenBackend executes resolved codergen turns.
 type CodergenBackend interface {
 	Run(CodergenTurn) (Outcome, *Error)
+	RunSupervisor(SupervisorTurn) (Verdict, *Error)
 	Steer([]ContentPart) SteerStatus
 	InterruptAll()
 	Bindings() map[string]ThreadBinding
+	SetBindingOpened(BindingOpened)
 }
 
 // RunTurnInput is the fully resolved input to one harness turn.

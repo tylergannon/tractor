@@ -11,12 +11,14 @@ import (
 
 	"github.com/tylergannon/tractor/graph"
 	"github.com/tylergannon/tractor/harness"
+	"github.com/tylergannon/tractor/internal/runlog"
 )
 
 // ExecutionScope is the engine-owned context for one handler execution.
 type ExecutionScope struct {
 	Workdir  string
 	StageDir string
+	RunLog   string
 	Goal     string
 	Stop     *StopSignal
 }
@@ -41,7 +43,6 @@ type Registry struct {
 // NewRegistry returns a registry containing the non-LLM built-in handlers.
 func NewRegistry() *Registry {
 	registry := &Registry{handlers: make(map[string]Handler)}
-	registry.Register("start", HandlerFunc(startHandler))
 	registry.Register("tool", HandlerFunc(toolHandler))
 	return registry
 }
@@ -58,10 +59,6 @@ func (r *Registry) Resolve(node graph.Node) (Handler, *harness.Error) {
 		return nil, terminalError(fmt.Sprintf("unknown handler type: %s", node.NodeType()))
 	}
 	return handler, nil
-}
-
-func startHandler(graph.Node, []graph.Edge, ExecutionScope, *graph.Graph) (harness.Outcome, *harness.Error) {
-	return harness.Outcome{Notes: "run started"}, nil
 }
 
 // StopSignal is a one-shot operator-stop signal.
@@ -100,11 +97,14 @@ type ValidateFunc func(graph.Graph) error
 
 // RunnerConfig supplies the run paths and the already-configured backend.
 type RunnerConfig struct {
-	LogsRoot string
-	Workdir  string
-	Validate ValidateFunc
-	Backend  harness.CodergenBackend
-	Stop     *StopSignal
+	LogsRoot               string
+	Workdir                string
+	Validate               ValidateFunc
+	Backend                harness.CodergenBackend
+	Stop                   *StopSignal
+	DefaultModel           string
+	DefaultProvider        string
+	DefaultReasoningEffort string
 }
 
 // RunStatus is the terminal status of a graph walk.
@@ -127,6 +127,7 @@ type nodeExecution struct {
 	runErr    *harness.Error
 	attempted bool
 	stageDirs []string
+	segments  []string
 }
 
 // Runner executes one graph from its start node.
@@ -141,6 +142,13 @@ type Runner struct {
 	retryDelay       func(int) time.Duration
 	activeMu         sync.Mutex
 	active           *activeExecution
+	liveMu           sync.Mutex
+	live             map[uint64]liveExecution
+	nextLiveID       uint64
+	runLogs          *runlog.Allocator
+	checkpointMu     sync.Mutex
+	lastCheckpoint   Checkpoint
+	supervision      *supervisionService
 }
 
 // NewRunner validates the graph and prepares a runner without creating run files.
@@ -184,20 +192,11 @@ func newRunner(pipeline graph.Graph, registry *Registry, config RunnerConfig) (*
 		stop = NewStopSignal()
 	}
 	nodes := make(map[string]graph.Node, len(pipeline.Nodes))
-	startID := ""
-	startCount := 0
 	for _, node := range pipeline.Nodes {
 		if node == nil {
 			return nil, fmt.Errorf("graph contains a nil node")
 		}
 		nodes[node.Base().ID] = node
-		if node.NodeType() == "start" {
-			startID = node.Base().ID
-			startCount++
-		}
-	}
-	if startCount != 1 {
-		return nil, fmt.Errorf("graph must contain exactly one start node")
 	}
 	return &Runner{
 		graph:      pipeline,
@@ -205,8 +204,9 @@ func newRunner(pipeline graph.Graph, registry *Registry, config RunnerConfig) (*
 		config:     config,
 		stop:       stop,
 		nodes:      nodes,
-		startID:    startID,
+		startID:    pipeline.Start,
 		retryDelay: defaultRetryDelay,
+		live:       make(map[uint64]liveExecution),
 	}, nil
 }
 
@@ -232,19 +232,28 @@ func (r *Runner) Run() (RunResult, error) {
 	state := newEngineState()
 	currentID := r.startID
 	if r.resumeCheckpoint != nil {
-		if r.resumeCheckpoint.NextNode == "" {
+		if graph.IsPseudoTarget(r.resumeCheckpoint.NextNode) {
 			if err := cleanupBranchWorktrees(r.config.Workdir, r.config.LogsRoot); err != nil {
 				return RunResult{}, err
+			}
+			if r.resumeCheckpoint.NextNode == graph.Failure {
+				return failed(r.resumeCheckpoint.LastResponse), nil
 			}
 			return RunResult{Status: RunCompleted}, nil
 		}
 		state = stateFromCheckpoint(*r.resumeCheckpoint)
 		currentID = r.resumeCheckpoint.NextNode
+		r.lastCheckpoint = *r.resumeCheckpoint
 	}
 	store, err := openRunStore(r.config.LogsRoot, state)
 	if err != nil {
 		return RunResult{}, err
 	}
+	allocator, err := runlog.New(r.config.LogsRoot)
+	if err != nil {
+		return RunResult{}, fmt.Errorf("open run-log allocator: %w", err)
+	}
+	r.runLogs = allocator
 	control, manifest, err := r.startControlServer(store)
 	if err != nil {
 		return RunResult{}, err
@@ -267,7 +276,15 @@ func (r *Runner) Run() (RunResult, error) {
 			return RunResult{}, errors.Join(err, eventErr)
 		}
 	}
+	r.supervision, err = newSupervisionService(r, store)
+	if err != nil {
+		return RunResult{}, err
+	}
+	r.installBindingCallback(store)
+	r.supervision.start()
+	defer r.supervision.stopAndWait()
 	result, runErr := r.walk(state, store, currentID)
+	r.supervision.stopAndWait()
 	duration := time.Since(started).String()
 	if runErr != nil {
 		if err := store.appendTimeline(timelineEvent{"type": "PipelineFailed", "error": runErr.Error(), "duration": duration}); err != nil {
@@ -293,15 +310,6 @@ func (r *Runner) walk(state *engineState, store *runStore, currentID string) (Ru
 		if node == nil {
 			return failed(fmt.Sprintf("unknown node: %s", currentID)), nil
 		}
-		if node.NodeType() == "exit" {
-			if err := r.saveCheckpoint(store, state.checkpoint(currentID, "", false, r.bindings()), currentID); err != nil {
-				return RunResult{}, err
-			}
-			if err := cleanupBranchWorktrees(r.config.Workdir, r.config.LogsRoot); err != nil {
-				return RunResult{}, err
-			}
-			return RunResult{Status: RunCompleted}, nil
-		}
 		if r.stop.IsSet() {
 			return failed("stopped by operator"), nil
 		}
@@ -324,14 +332,26 @@ func (r *Runner) walk(state *engineState, store *runStore, currentID string) (Ru
 		if err := r.saveCheckpoint(store, state.checkpoint(node.Base().ID, execution.nextID, false, r.bindings()), node.Base().ID); err != nil {
 			return RunResult{}, err
 		}
+		if graph.IsPseudoTarget(execution.nextID) {
+			if err := cleanupBranchWorktrees(r.config.Workdir, r.config.LogsRoot); err != nil {
+				return RunResult{}, err
+			}
+			if execution.nextID == graph.Failure {
+				return failed(truncate(execution.outcome.Notes, 200)), nil
+			}
+			return RunResult{Status: RunCompleted}, nil
+		}
 		currentID = execution.nextID
 	}
 }
 
 func (r *Runner) saveCheckpoint(store *runStore, checkpoint Checkpoint, nodeID string) error {
+	r.checkpointMu.Lock()
+	defer r.checkpointMu.Unlock()
 	if err := store.saveCheckpoint(checkpoint); err != nil {
 		return err
 	}
+	r.lastCheckpoint = checkpoint
 	return store.appendTimeline(timelineEvent{"type": "CheckpointSaved", "node_id": nodeID})
 }
 
@@ -347,8 +367,8 @@ func (r *Runner) executeNode(node graph.Node, state *engineState, store *runStor
 	if resolveErr != nil {
 		return nodeExecution{runErr: resolveErr}, nil
 	}
-	outcome, nextID, runErr, attempted, stageDirs, err := r.executeWithRetry(node, handler, offered, state, store, workdir, branchID)
-	execution := nodeExecution{outcome: outcome, nextID: nextID, runErr: runErr, attempted: attempted, stageDirs: stageDirs}
+	outcome, nextID, runErr, attempted, stageDirs, segments, err := r.executeWithRetry(node, handler, offered, state, store, workdir, branchID)
+	execution := nodeExecution{outcome: outcome, nextID: nextID, runErr: runErr, attempted: attempted, stageDirs: stageDirs, segments: segments}
 	if err != nil {
 		return execution, err
 	}
@@ -356,10 +376,12 @@ func (r *Runner) executeNode(node graph.Node, state *engineState, store *runStor
 }
 
 func (r *Runner) validateResumeCheckpoint(checkpoint Checkpoint) error {
-	if checkpoint.NextNode == "" {
-		current := r.nodes[checkpoint.CurrentNode]
-		if current == nil || current.NodeType() != "exit" || checkpoint.RetryVisit {
-			return fmt.Errorf("checkpoint has no valid continuation")
+	if graph.IsPseudoTarget(checkpoint.NextNode) {
+		if checkpoint.CurrentNode == "" || checkpoint.RetryVisit {
+			return fmt.Errorf("checkpoint has invalid final continuation")
+		}
+		if r.nodes[checkpoint.CurrentNode] == nil {
+			return fmt.Errorf("checkpoint current node %q is not in the graph", checkpoint.CurrentNode)
 		}
 		return nil
 	}
@@ -376,9 +398,6 @@ func (r *Runner) validateResumeCheckpoint(checkpoint Checkpoint) error {
 	if current == nil {
 		return fmt.Errorf("checkpoint current node %q is not in the graph", checkpoint.CurrentNode)
 	}
-	if current.NodeType() == "exit" {
-		return fmt.Errorf("checkpoint continues after exit node %q", checkpoint.CurrentNode)
-	}
 	if checkpoint.RetryVisit && checkpoint.NextNode != checkpoint.CurrentNode {
 		return fmt.Errorf("checkpoint retry continuation does not name current node %q", checkpoint.CurrentNode)
 	}
@@ -392,20 +411,21 @@ func (r *Runner) executeWithRetry(
 	state *engineState,
 	store *runStore,
 	workdir, branchID string,
-) (harness.Outcome, string, *harness.Error, bool, []string, error) {
+) (harness.Outcome, string, *harness.Error, bool, []string, []string, error) {
 	maxRetries := resolvedMaxRetries(node, r.graph.Defaults)
 	if maxRetries < 0 {
-		return harness.Outcome{}, "", terminalError("max_retries must be nonnegative"), false, nil, nil
+		return harness.Outcome{}, "", terminalError("max_retries must be nonnegative"), false, nil, nil, nil
 	}
 	maxAttempts := maxRetries + 1
 	stageDirs := make([]string, 0, maxAttempts)
+	segments := make([]string, 0, maxAttempts)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		if r.stop.IsSet() {
-			return harness.Outcome{}, "", interruptedError("stopped by operator"), attempt > 1, stageDirs, nil
+			return harness.Outcome{}, "", interruptedError("stopped by operator"), attempt > 1, stageDirs, segments, nil
 		}
 		stage, err := store.allocateStage(node.Base().ID)
 		if err != nil {
-			return harness.Outcome{}, "", nil, attempt > 1, stageDirs, err
+			return harness.Outcome{}, "", nil, attempt > 1, stageDirs, segments, err
 		}
 		stageDirs = append(stageDirs, stage.Dir)
 		r.setActiveStage(node.Base().ID, stage.Dir)
@@ -415,25 +435,39 @@ func (r *Runner) executeWithRetry(
 			"name":  node.Base().ID,
 			"index": stage.Seq,
 		})); err != nil {
-			return harness.Outcome{}, "", nil, attempt > 1, stageDirs, err
+			return harness.Outcome{}, "", nil, attempt > 1, stageDirs, segments, err
 		}
 		if attempt == 1 {
 			state.beginVisit(node.Base().ID)
 		}
 		state.beginAttempt(node.Base().ID)
-		outcome, runErr := callHandler(handler, node, offered, ExecutionScope{
-			Workdir:  workdir,
-			StageDir: stage.Dir,
-			Goal:     r.graph.Goal,
-			Stop:     r.stop,
-		}, &r.graph)
+		runLog, allocationErr := r.allocateRunLog(node)
+		if runLog != "" {
+			segments = append(segments, runLog)
+		}
+		var outcome harness.Outcome
+		var runErr *harness.Error
+		if allocationErr != nil {
+			runErr = allocationErr
+		} else {
+			liveID := r.beginExecution(node.Base().ID, attempt, runLog)
+			outcome, runErr = callHandler(handler, node, offered, ExecutionScope{
+				Workdir:  workdir,
+				StageDir: stage.Dir,
+				RunLog:   runLog,
+				Goal:     r.graph.Goal,
+				Stop:     r.stop,
+			}, &r.graph)
+			r.endExecution(liveID)
+		}
 		if runErr == nil {
 			if err := stage.complete(outcome); err != nil {
-				return harness.Outcome{}, "", nil, true, stageDirs, err
+				return harness.Outcome{}, "", nil, true, stageDirs, segments, err
 			}
 			nextID, err := r.resolveNext(node, outcome, offered)
+			r.appendAttemptDigests(node.Base().ID, attempt, stage, outcome, nil)
 			if err != nil {
-				return outcome, "", terminalError(err.Error()), true, stageDirs, nil
+				return outcome, "", terminalError(err.Error()), true, stageDirs, segments, nil
 			}
 			if err := store.appendTimeline(stageEvent(branchID, workdir, timelineEvent{
 				"type":     "StageCompleted",
@@ -442,13 +476,14 @@ func (r *Runner) executeWithRetry(
 				"duration": time.Since(stageStarted).String(),
 				"next":     nextID,
 			})); err != nil {
-				return harness.Outcome{}, "", nil, true, stageDirs, err
+				return harness.Outcome{}, "", nil, true, stageDirs, segments, err
 			}
-			return outcome, nextID, nil, true, stageDirs, nil
+			return outcome, nextID, nil, true, stageDirs, segments, nil
 		}
 		if err := stage.fail(runErr); err != nil {
-			return harness.Outcome{}, "", nil, true, stageDirs, err
+			return harness.Outcome{}, "", nil, true, stageDirs, segments, err
 		}
+		r.appendAttemptDigests(node.Base().ID, attempt, stage, harness.Outcome{}, runErr)
 		willRetry := runErr.Category == harness.ErrorRetryable && attempt < maxAttempts
 		if err := store.appendTimeline(stageEvent(branchID, workdir, timelineEvent{
 			"type":       "StageFailed",
@@ -457,10 +492,10 @@ func (r *Runner) executeWithRetry(
 			"error":      runErr.Message,
 			"will_retry": willRetry,
 		})); err != nil {
-			return harness.Outcome{}, "", nil, true, stageDirs, err
+			return harness.Outcome{}, "", nil, true, stageDirs, segments, err
 		}
 		if !willRetry {
-			return harness.Outcome{}, "", runErr, true, stageDirs, nil
+			return harness.Outcome{}, "", runErr, true, stageDirs, segments, nil
 		}
 		delay := r.retryDelay(attempt)
 		if err := store.appendTimeline(stageEvent(branchID, workdir, timelineEvent{
@@ -470,10 +505,10 @@ func (r *Runner) executeWithRetry(
 			"attempt": attempt + 1,
 			"delay":   delay.String(),
 		})); err != nil {
-			return harness.Outcome{}, "", nil, true, stageDirs, err
+			return harness.Outcome{}, "", nil, true, stageDirs, segments, err
 		}
 		if !waitForBackoff(delay, r.stop) {
-			return harness.Outcome{}, "", interruptedError("stopped by operator"), true, stageDirs, nil
+			return harness.Outcome{}, "", interruptedError("stopped by operator"), true, stageDirs, segments, nil
 		}
 	}
 	panic("unreachable")
@@ -496,9 +531,6 @@ func resolvedMaxRetries(node graph.Node, defaults graph.Defaults) int {
 		supported = true
 		configured, present = current.MaxRetries.Value, current.MaxRetries.Present
 	case *graph.FanInNode:
-		supported = true
-		configured, present = current.MaxRetries.Value, current.MaxRetries.Present
-	case *graph.CustomNode:
 		supported = true
 		configured, present = current.MaxRetries.Value, current.MaxRetries.Present
 	}
@@ -541,19 +573,36 @@ func waitForBackoff(delay time.Duration, stop *StopSignal) bool {
 }
 
 func (r *Runner) offeredSuccessors(node graph.Node, state *engineState) ([]graph.Edge, error) {
-	offered := make([]graph.Edge, 0, len(node.Base().Edges))
-	for _, edge := range node.Base().Edges {
+	authored := routingEdges(node)
+	offered := make([]graph.Edge, 0, len(authored))
+	for _, edge := range authored {
+		if graph.IsPseudoTarget(edge.To) {
+			offered = append(offered, edge)
+			continue
+		}
 		target := r.nodes[edge.To]
 		if target == nil {
-			return nil, fmt.Errorf("edge from %s names unknown node %s", node.Base().ID, edge.To)
+			return nil, fmt.Errorf("route from %s names unknown node %s", node.Base().ID, edge.To)
 		}
-		budget := target.Base().MaxVisits
+		budget := graph.MaxVisits(target)
 		if budget.Present && state.visits(target.Base().ID) >= budget.Value {
 			continue
 		}
 		offered = append(offered, edge)
 	}
 	return offered, nil
+}
+
+func routingEdges(node graph.Node) []graph.Edge {
+	if edges := graph.ChoiceEdges(node); edges != nil {
+		return edges
+	}
+	targets := graph.RoutingTargets(node)
+	edges := make([]graph.Edge, len(targets))
+	for index, target := range targets {
+		edges[index] = graph.Edge{To: target}
+	}
+	return edges
 }
 
 func (r *Runner) bindings() map[string]harness.ThreadBinding {
@@ -586,6 +635,17 @@ func (r *Runner) resolveNext(node graph.Node, outcome harness.Outcome, offered [
 		}
 	}
 	return "", fmt.Errorf("chooser named an unoffered successor: %s", outcome.Next)
+}
+
+func (r *Runner) allocateRunLog(node graph.Node) (string, *harness.Error) {
+	if r.config.Backend == nil || (node.NodeType() != "codergen" && node.NodeType() != "parallel.fan_in") {
+		return "", nil
+	}
+	segment, err := r.runLogs.Allocate(node.Base().ID)
+	if err != nil {
+		return "", terminalError(fmt.Sprintf("allocate run log: %v", err))
+	}
+	return segment.Path, nil
 }
 
 func callHandler(handler Handler, node graph.Node, offered []graph.Edge, scope ExecutionScope, pipeline *graph.Graph) (outcome harness.Outcome, runErr *harness.Error) {
