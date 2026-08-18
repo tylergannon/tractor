@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -113,6 +114,97 @@ func TestRunTurnTimeoutInterruptsProcess(t *testing.T) {
 	}
 }
 
+func TestSteerInterruptsAndResumesSameRunTurn(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "steer", record)
+	defer adapter.Close()
+
+	var mu sync.Mutex
+	var events []harness.Event
+	type outcome struct {
+		result harness.Result
+		err    *harness.Error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(event harness.Event) {
+			mu.Lock()
+			events = append(events, event)
+			mu.Unlock()
+		})
+		done <- outcome{result: result, err: runErr}
+	}()
+	waitForInvocations(t, record, 1)
+	steerParts := []harness.ContentPart{{Type: harness.ContentPartText, Text: "apply the steering message"}}
+	adapter.Steer("conversation-test", steerParts)
+
+	got := <-done
+	if got.err != nil || got.result["answer"] != "valid" {
+		t.Fatalf("steered result=%#v err=%v", got.result, got.err)
+	}
+	invocations := readInvocations(t, record)
+	if len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want interrupted turn plus resume", len(invocations))
+	}
+	if prompt := flagValue(invocations[1], "-p"); prompt != steerParts[0].Text {
+		t.Fatalf("steering prompt = %q", prompt)
+	}
+	for _, args := range invocations {
+		assertFlagValue(t, args, "--conversation", "conversation-test")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	var users []harness.Event
+	for _, event := range events {
+		if event["type"] == harness.EventUser {
+			users = append(users, event)
+		}
+	}
+	if len(users) != 2 {
+		t.Fatalf("user events = %d, want initial plus steering", len(users))
+	}
+}
+
+func TestSteerInactiveSessionDoesNotQueue(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "success", record)
+	defer adapter.Close()
+	adapter.states["conversation-test"] = &sessionState{workdir: workdir}
+	adapter.Steer("conversation-test", []harness.ContentPart{{Type: harness.ContentPartText, Text: "do not queue me"}})
+
+	var users int
+	_, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(event harness.Event) {
+		if event["type"] == harness.EventUser {
+			users++
+		}
+	})
+	if runErr != nil {
+		t.Fatal(runErr)
+	}
+	if users != 1 || len(readInvocations(t, record)) != 1 {
+		t.Fatalf("inactive steering leaked: users=%d invocations=%d", users, len(readInvocations(t, record)))
+	}
+}
+
+func TestCompactSendsNativeCommand(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "success", record)
+	defer adapter.Close()
+	adapter.states["conversation-test"] = &sessionState{workdir: workdir}
+
+	if compactErr := adapter.Compact("conversation-test", workdir); compactErr != nil {
+		t.Fatal(compactErr)
+	}
+	invocations := readInvocations(t, record)
+	if len(invocations) != 1 || flagValue(invocations[0], "-p") != "/compact" {
+		t.Fatalf("compact invocations = %#v", invocations)
+	}
+	assertFlagValue(t, invocations[0], "--conversation", "conversation-test")
+}
+
 func TestCreateSessionClassifiesIDLessServiceFailure(t *testing.T) {
 	adapter := testAdapter(t, "internal", "")
 	defer adapter.Close()
@@ -132,6 +224,17 @@ func TestCategorize(t *testing.T) {
 		if got := categorize(fmt.Errorf("%s", message), false); got.Category != want {
 			t.Errorf("categorize(%q) = %q, want %q", message, got.Category, want)
 		}
+	}
+}
+
+func TestModelIncludesEffort(t *testing.T) {
+	for _, model := range []string{"gemini-3.7-flash-low", "gemini-3.7-flash-medium", "gemini-3.1-pro-high"} {
+		if !modelIncludesEffort(model) {
+			t.Errorf("modelIncludesEffort(%q) = false", model)
+		}
+	}
+	if modelIncludesEffort("gemini-test") {
+		t.Error("modelIncludesEffort(gemini-test) = true")
 	}
 }
 
@@ -194,6 +297,10 @@ func TestAgyHelperProcess(t *testing.T) {
 		os.Exit(3)
 	}
 	prompt := flagValue(args, "-p")
+	if mode == "steer" && prompt != "apply the steering message" {
+		time.Sleep(30 * time.Second)
+		os.Exit(3)
+	}
 	schemaValue := any(nil)
 	if path := flagValue(args, "--json-schema"); path != "" {
 		raw, err := os.ReadFile(path)
@@ -249,4 +356,19 @@ func assertFlagValue(t *testing.T, args []string, flag, want string) {
 	if got := flagValue(args, flag); got != want {
 		t.Fatalf("%s = %q, want %q in %#v", flag, got, want, args)
 	}
+}
+
+func waitForInvocations(t *testing.T, path string, want int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if raw, err := os.ReadFile(path); err == nil {
+			trimmed := strings.TrimSpace(string(raw))
+			if trimmed != "" && strings.Count(trimmed, "\n")+1 >= want {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d invocation(s)", want)
 }

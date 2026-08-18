@@ -48,9 +48,9 @@ Tractor has five documented implementation choices around that contract:
   that were optional, and validates the result against the caller's unchanged
   schema. Claude receives the caller schema unchanged.
 - Gemini models route through the authenticated `agy` CLI. Tractor validates
-  agy's structured output locally and allows one repair turn; `agy` print mode
-  has no live steering channel, so steering is a documented no-op for this
-  adapter while context compaction remains service-managed.
+  agy's structured output locally and allows one repair turn. Steering
+  interrupts the active print process and resumes the same native conversation
+  with the steering prompt; compaction sends agy's `/compact` command.
 Runnable, self-verifying workflows for external steering, parallel
 fan-out/fan-in, YAML input, and live supervision are in
 [`examples/`](examples/README.md).
