@@ -19,6 +19,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/spf13/cobra"
 	"github.com/tylergannon/tractor/engine"
 	"github.com/tylergannon/tractor/graph"
 	"github.com/tylergannon/tractor/harness"
@@ -212,8 +213,10 @@ func TestMCPStdioSteersAndStopsRunningPipeline(t *testing.T) {
 	}
 }
 
-func TestMCPStdioShutdownStopsRunningPipeline(t *testing.T) {
-	session, ctx := connectToTractorMCP(t)
+func TestMCPRunSurvivesStdioShutdownAndReconnects(t *testing.T) {
+	binary := buildTractor(t)
+	stateDir := t.TempDir()
+	session, ctx := connectToTractorMCPBinary(t, binary, stateDir)
 	toolPIDPath := filepath.Join(t.TempDir(), "tool.pid")
 	pipeline := strings.Replace(slowPipeline, `"sleep 30"`, strconv.Quote("echo $$ > "+toolPIDPath+"; sleep 30"), 1)
 	start := startMCPRun(t, ctx, session, pipeline)
@@ -227,23 +230,43 @@ func TestMCPStdioShutdownStopsRunningPipeline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	startedShutdown := time.Now()
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(startedShutdown); elapsed >= 2*time.Second {
-		t.Fatalf("MCP shutdown took %s, exceeding the client grace period", elapsed)
+	if !processExists(start.PID) {
+		t.Fatalf("detached Tractor runner %d exited with its MCP server", start.PID)
+	}
+	if !processExists(toolPID) {
+		t.Fatalf("tool process %d exited with its MCP server", toolPID)
 	}
 
+	reconnected, reconnectedContext := connectToTractorMCPBinary(t, binary, stateDir)
+	statusResult, err := callTool(reconnectedContext, reconnected, "get_run_status", map[string]any{"run_id": start.RunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if statusResult.IsError {
+		t.Fatalf("get_run_status after reconnect returned an error: %#v", statusResult.Content)
+	}
+	if status := decodeStructured[runStatusOutput](t, statusResult.StructuredContent); status.Status != "RUNNING" {
+		t.Fatalf("status after reconnect = %#v", status)
+	}
+	stopped, err := callTool(reconnectedContext, reconnected, "stop_run", map[string]any{"run_id": start.RunID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.IsError {
+		t.Fatalf("stop_run after reconnect returned an error: %#v", stopped.Content)
+	}
+	if status := waitForRunStatus(t, reconnectedContext, reconnected, start.RunID); status.Status != "STOPPED" {
+		t.Fatalf("terminal status after reconnect = %#v", status)
+	}
 	deadline := time.Now().Add(10 * time.Second)
-	for processExists(start.PID) {
-		if time.Now().After(deadline) {
-			t.Fatalf("Tractor child process %d survived MCP shutdown", start.PID)
-		}
+	for processExists(toolPID) && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	if processExists(toolPID) {
-		t.Fatalf("tool process %d survived MCP shutdown", toolPID)
+		t.Fatalf("tool process %d survived explicit stop", toolPID)
 	}
 }
 
@@ -284,11 +307,17 @@ func TestSteerRunForwardsAcceptedInstruction(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(logsRoot, "manifest.json"), manifest, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	state := &tractorMCPServer{runs: map[string]*managedRun{
-		"run": {id: "run", logsRoot: logsRoot, status: "RUNNING"},
-	}}
+	store := &mcpRunStore{dir: t.TempDir()}
+	runID := strings.Repeat("a", 32)
+	if err := store.create(mcpRunRecord{
+		Version: mcpRunStateVersion, ID: runID, PID: os.Getpid(), Status: "RUNNING",
+		LogsRoot: logsRoot, StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	state := &tractorMCPServer{runs: store}
 	output, err := state.steerRun(context.Background(), mcp.CallToolRequest{}, steerRunInput{
-		RunID: "run",
+		RunID: runID,
 		Text:  "continue carefully",
 	})
 	if err != nil {
@@ -304,32 +333,35 @@ func TestSteerRunForwardsAcceptedInstruction(t *testing.T) {
 }
 
 func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
-	stdout, err := os.CreateTemp(t.TempDir(), "stdout-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	stderr, err := os.CreateTemp(t.TempDir(), "stderr-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	command := exec.Command("/bin/sh", "-c", "trap '' INT TERM; sleep 30 & wait")
-	command.Stdout = stdout
-	command.Stderr = stderr
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	runID := strings.Repeat("b", 32)
+	command := exec.Command("/bin/sh", "-c", "trap '' INT TERM; sleep 30 & wait", "mcp-runner", "--run-id", runID)
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL) })
-	run := &managedRun{
-		id: "force-stop", command: command, status: "RUNNING",
-		startedAt: time.Now(), done: make(chan struct{}),
+	done := make(chan struct{})
+	go func() {
+		_ = command.Wait()
+		close(done)
+	}()
+	store := &mcpRunStore{dir: t.TempDir()}
+	run := mcpRunRecord{
+		Version: mcpRunStateVersion, ID: runID, PID: command.Process.Pid,
+		Status: "RUNNING", StartedAt: time.Now().UTC(),
 	}
-	go waitForRun(run, stdout, stderr)
+	if err := store.create(run); err != nil {
+		t.Fatal(err)
+	}
 
-	if status, err := requestRunStop(run); err != nil || status != "STOPPING" {
+	if status, err := requestRunStop(store, run); err != nil || status != "STOPPING" {
 		t.Fatalf("first stop = %q, %v", status, err)
 	}
-	status, err := requestRunStop(run)
+	run, err := store.load(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := requestRunStop(store, run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,6 +370,33 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 	}
 	if err := syscall.Kill(-command.Process.Pid, syscall.Signal(0)); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("process group still exists: %v", err)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("forced runner was not reaped")
+	}
+}
+
+func TestDetachedRunnerHonorsStopRequestedBeforeStartup(t *testing.T) {
+	store := &mcpRunStore{dir: t.TempDir()}
+	runID := strings.Repeat("c", 32)
+	stopAt := time.Now().UTC()
+	if err := store.create(mcpRunRecord{
+		Version: mcpRunStateVersion, ID: runID, PID: os.Getpid(), Status: "STOPPING",
+		Pipeline: filepath.Join(t.TempDir(), "does-not-exist.json"), StartedAt: stopAt, StopAt: &stopAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runDetachedMCPRun(&cobra.Command{}, store, runID); err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.load(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "STOPPED" || record.ExitCode == nil || *record.ExitCode != 130 {
+		t.Fatalf("record = %#v", record)
 	}
 }
 
@@ -358,7 +417,13 @@ func startMCPRun(t *testing.T, ctx context.Context, session *client.Client, pipe
 	if started.IsError {
 		t.Fatalf("start_run returned an error: %#v", started.Content)
 	}
-	return decodeStructured[startRunOutput](t, started.StructuredContent)
+	output := decodeStructured[startRunOutput](t, started.StructuredContent)
+	t.Cleanup(func() {
+		if processOwnsRun(output.PID, output.RunID) == nil {
+			_ = killProcessGroup(output.PID)
+		}
+	})
+	return output
 }
 
 func waitForRunStatus(t *testing.T, ctx context.Context, session *client.Client, runID string) runStatusOutput {
@@ -404,14 +469,24 @@ func processExists(pid int) bool {
 
 func connectToTractorMCP(t *testing.T) (*client.Client, context.Context) {
 	t.Helper()
+	return connectToTractorMCPBinary(t, buildTractor(t), t.TempDir())
+}
+
+func buildTractor(t *testing.T) string {
+	t.Helper()
 	binary := filepath.Join(t.TempDir(), "tractor")
 	build := exec.Command("go", "build", "-o", binary, ".")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build Tractor: %v\n%s", err, output)
 	}
+	return binary
+}
+
+func connectToTractorMCPBinary(t *testing.T, binary, stateDir string) (*client.Client, context.Context) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
-	session, err := client.NewStdioMCPClient(binary, nil, "mcp")
+	session, err := client.NewStdioMCPClient(binary, []string{mcpRunStateEnv + "=" + stateDir}, "mcp")
 	if err != nil {
 		t.Fatal(err)
 	}

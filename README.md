@@ -33,19 +33,33 @@ fan-out/fan-in, YAML input, and live supervision are in
 
 ## Codex plugin and MCP server
 
-This repository is also a Codex plugin. Install or update the Tractor binary
-with Go, then install the plugin from the repository marketplace:
+This repository is also a Codex plugin. The normal installer installs the
+latest Tractor binary with Go and then cleanly installs or replaces the Codex
+plugin:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tylergannon/tractor/main/scripts/install.sh | sh
+```
+
+To install or update explicitly, run the same two operations directly:
 
 ```sh
 go install github.com/tylergannon/tractor/cmd/tractor@latest
-codex plugin marketplace add tylergannon/tractor
-codex plugin add tractor@tractor
+tractor plugin install
 ```
 
-`go install` writes to `GOBIN`, or to `GOPATH/bin` when `GOBIN` is unset. That
-directory must be on the `PATH` inherited by Codex. Rerun the same `go install`
-command to update Tractor. Start a new Codex task after installation or update
-so the plugin launches the installed binary with `tractor mcp`. See
+The installer script resolves `GOBIN` or `GOPATH/bin` itself. For the explicit
+form, that directory must already be on `PATH`. `tractor plugin install`
+refreshes the marketplace, removes the old plugin and its Codex cache, installs
+the current plugin, retires MCP servers registered by versions with
+detached-run support, and removes the obsolete source-building wrapper cache.
+It never stops detached Tractor runs. MCP servers from older versions that
+cannot make that safety guarantee are left to exit with their existing Codex
+tasks.
+
+The Go binary directory must be on the `PATH` inherited by Codex. Start a new
+Codex task after installation or update so the plugin launches the installed
+binary with `tractor mcp`. See
 [`llms.txt`](llms.txt) for the agent-oriented installation and MCP usage
 reference.
 
@@ -60,11 +74,12 @@ Tractor binary and cannot acquire a separately maintained schema.
 Run the server directly with `tractor mcp`. MCP clients should communicate over
 stdin and stdout; diagnostics and run output are written elsewhere so they
 cannot corrupt the protocol stream.
-Runs belong to the stdio server session. When that session closes, the server
-requests a cooperative stop and then force-stops the run's process group within
-its bounded shutdown window. Tool commands receive the cooperative stop through
-Tractor's runtime; processes that deliberately detach from Tractor's process
-groups are outside this guarantee.
+Each `start_run` call launches a new detached Tractor runner and atomically
+records its state under `~/.local/state/tractor/mcp-runs`. Closing or replacing
+the MCP server does not stop the run. A later MCP server can use the same
+`run_id` to inspect, steer, or stop it. `stop_run` signals only the process group
+whose persisted command identity matches that run; repeating the call after the
+graceful window escalates to a forced stop.
 
 ## License
 
