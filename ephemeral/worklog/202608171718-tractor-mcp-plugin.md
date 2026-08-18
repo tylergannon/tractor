@@ -8,3 +8,5 @@ decision: Use a content-addressed launcher executable so concurrent launches and
 correction: Persistent content-addressed launcher binaries accumulate across plugin revisions; use a unique per-session build, forward signals through the launcher, and remove the build only after the server has stopped its child runs.
 correction: Freeze the owned run leader before inspecting detached descendant groups so its PID and ancestry cannot be recycled during the forced-stop scan.
 correction: Run metadata other than checkpoints also needs temp-file-and-rename writes so a bounded forced shutdown cannot leave truncated JSON artifacts.
+correction: A shell wrapper cannot portably background a stdio MCP server because POSIX shells may attach asynchronous commands to /dev/null; keep the final launcher step as exec.
+decision: Tool groups are authoritatively canceled inside Tractor when the initial stop signal is broadcast; test that real shutdown path directly instead of reconstructing the global process tree with ps.

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -204,8 +203,19 @@ func TestMCPStdioSteersAndStopsRunningPipeline(t *testing.T) {
 
 func TestMCPStdioShutdownStopsRunningPipeline(t *testing.T) {
 	session, ctx := connectToTractorMCP(t)
-	start := startMCPRun(t, ctx, session, slowPipeline)
+	toolPIDPath := filepath.Join(t.TempDir(), "tool.pid")
+	pipeline := strings.Replace(slowPipeline, `"sleep 30"`, strconv.Quote("echo $$ > "+toolPIDPath+"; sleep 30"), 1)
+	start := startMCPRun(t, ctx, session, pipeline)
 	waitForFile(t, filepath.Join(start.LogsRoot, "manifest.json"))
+	waitForFile(t, toolPIDPath)
+	toolPIDBytes, err := os.ReadFile(toolPIDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolPID, err := strconv.Atoi(strings.TrimSpace(string(toolPIDBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
 	startedShutdown := time.Now()
 	if err := session.Close(); err != nil {
 		t.Fatal(err)
@@ -220,6 +230,9 @@ func TestMCPStdioShutdownStopsRunningPipeline(t *testing.T) {
 			t.Fatalf("Tractor child process %d survived MCP shutdown", start.PID)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+	if processExists(toolPID) {
+		t.Fatalf("tool process %d survived MCP shutdown", toolPID)
 	}
 }
 
@@ -280,7 +293,6 @@ func TestSteerRunForwardsAcceptedInstruction(t *testing.T) {
 }
 
 func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
-	detachedPIDPath := filepath.Join(t.TempDir(), "detached.pid")
 	stdout, err := os.CreateTemp(t.TempDir(), "stdout-")
 	if err != nil {
 		t.Fatal(err)
@@ -289,11 +301,7 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("/bin/sh", "-c", "trap '' INT TERM; \"$TRACTOR_TEST_BINARY\" -test.run=TestMCPDetachedProcessHelper & wait")
-	command.Env = append(os.Environ(),
-		"TRACTOR_TEST_BINARY="+os.Args[0],
-		"TRACTOR_DETACHED_PID_PATH="+detachedPIDPath,
-	)
+	command := exec.Command("/bin/sh", "-c", "trap '' INT TERM; sleep 30 & wait")
 	command.Stdout = stdout
 	command.Stderr = stderr
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -306,15 +314,6 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 		startedAt: time.Now(), done: make(chan struct{}),
 	}
 	go waitForRun(run, stdout, stderr)
-	waitForFile(t, detachedPIDPath)
-	detachedPIDBytes, err := os.ReadFile(detachedPIDPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	detachedPID, err := strconv.Atoi(strings.TrimSpace(string(detachedPIDBytes)))
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	if status, err := requestRunStop(run); err != nil || status != "STOPPING" {
 		t.Fatalf("first stop = %q, %v", status, err)
@@ -328,30 +327,6 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 	}
 	if err := syscall.Kill(-command.Process.Pid, syscall.Signal(0)); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("process group still exists: %v", err)
-	}
-	deadline := time.Now().Add(2 * time.Second)
-	for processExists(detachedPID) && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	if processExists(detachedPID) {
-		t.Fatalf("detached descendant process %d still exists", detachedPID)
-	}
-}
-
-func TestMCPDetachedProcessHelper(t *testing.T) {
-	pidPath := os.Getenv("TRACTOR_DETACHED_PID_PATH")
-	if pidPath == "" {
-		return
-	}
-	if err := syscall.Setpgid(0, 0); err != nil {
-		t.Fatal(err)
-	}
-	signal.Ignore(os.Interrupt, syscall.SIGTERM)
-	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for {
-		time.Sleep(time.Hour)
 	}
 }
 
