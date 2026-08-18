@@ -1,0 +1,4 @@
+interface:
+  display_name: "Release Tractor"
+  short_description: "Release Tractor and refresh its Codex marketplace install"
+  default_prompt: "Release Tractor and verify the marketplace install is current."
