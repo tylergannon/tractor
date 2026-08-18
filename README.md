@@ -44,6 +44,7 @@ Run the server directly with `tractor mcp` when Tractor is installed as a
 binary. MCP clients should communicate over stdin and stdout; diagnostics and
 run output are written elsewhere so they cannot corrupt the protocol stream.
 Runs belong to the stdio server session. When that session closes, the server
-first requests a cooperative stop and then terminates any remaining run process
-tree within the MCP host's shutdown deadline, preventing an unloaded plugin
-from leaving unsupervised work in the background.
+requests a cooperative stop and then force-stops the run's process group within
+its bounded shutdown window. Tool commands receive the cooperative stop through
+Tractor's runtime; processes that deliberately detach from Tractor's process
+groups are outside this guarantee.

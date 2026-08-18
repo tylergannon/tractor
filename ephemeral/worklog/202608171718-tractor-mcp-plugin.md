@@ -11,3 +11,5 @@ correction: Run metadata other than checkpoints also needs temp-file-and-rename 
 correction: A shell wrapper cannot portably background a stdio MCP server because POSIX shells may attach asynchronous commands to /dev/null; keep the final launcher step as exec.
 decision: Tool groups are authoritatively canceled inside Tractor when the initial stop signal is broadcast; test that real shutdown path directly instead of reconstructing the global process tree with ps.
 decision: Publish a repository marketplace and llms.txt that cover plugin installation and MCP operation only; defer pipeline-authoring guidance to later documentation work.
+correction: MCP safety annotations must explicitly mark read-only tools non-destructive and run-start/steering tools destructive; mcp-go defaults an omitted destructive hint to true.
+correction: Document the actual process-group shutdown boundary rather than promising termination of arbitrary descendants that deliberately detach themselves.

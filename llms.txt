@@ -8,7 +8,7 @@ Repository: https://github.com/tylergannon/tractor
 
 - Codex with plugin marketplace support.
 - Go 1.26 or newer on the machine running the plugin.
-- Repository access when the GitHub repository is private.
+- SSH access to the GitHub repository while it is private.
 
 ## Install in Codex
 
@@ -17,7 +17,7 @@ codex plugin marketplace add tylergannon/tractor
 codex plugin add tractor@tractor
 ```
 
-Start a new Codex task after installation so the plugin's MCP server and skill are loaded.
+Start a new Codex task after installation so the plugin's MCP server is loaded.
 
 ## MCP server
 
@@ -28,13 +28,15 @@ The server uses `github.com/mark3labs/mcp-go`. All tools are deferred, so their 
 ## Tools
 
 - `validate_pipeline`: validate a JSON, YAML, or YML pipeline file.
-- `start_run`: start a validated pipeline and return its run ID, process ID, and log paths.
+- `start_run`: start or resume a validated pipeline and return its run ID, process ID, and log paths.
 - `get_run_status`: inspect a run by run ID.
-- `steer_run`: send text to the run's active steerable turn.
-- `stop_run`: request that a run stop.
+- `steer_run`: send text to the run's active steerable turn; when none is active it returns `accepted: false` and HTTP status 409.
+- `stop_run`: request that a run stop; repeating the call after the graceful window escalates to a forced stop.
 - `get_pipeline_schema`: return Tractor's current graph JSON Schema on demand.
 
-`validate_pipeline` and `start_run` accept `pipeline_path` and an optional `workdir`. Later operations use the `run_id` returned by `start_run`. Runs belong to the MCP stdio session and are stopped when that session closes.
+`validate_pipeline` accepts `pipeline_path` and an optional `workdir`. `start_run` also accepts an optional `logs_root` and `resume`. A new run requires an empty or absent `logs_root`; use `resume: true` to continue from an existing run directory. Later operations use the `run_id` returned by `start_run`.
+
+Runs belong to the MCP stdio session. Closing the session requests a cooperative stop and then force-stops the run process group within a bounded shutdown window. Commands that deliberately detach themselves from Tractor's process groups may outlive that session.
 
 ## Schema synchronization
 

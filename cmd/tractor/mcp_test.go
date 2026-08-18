@@ -41,10 +41,21 @@ func TestMCPStdioListsCompactToolsAndServesCurrentGraphSchema(t *testing.T) {
 		"validate_pipeline",
 	}
 	var gotNames []string
+	wantDestructive := map[string]bool{
+		"get_pipeline_schema": false,
+		"get_run_status":      false,
+		"start_run":           true,
+		"steer_run":           true,
+		"stop_run":            true,
+		"validate_pipeline":   false,
+	}
 	for _, tool := range listed.Tools {
 		gotNames = append(gotNames, tool.Name)
 		if !tool.DeferLoading {
 			t.Errorf("tool %q is not marked for deferred loading", tool.Name)
+		}
+		if tool.Annotations.DestructiveHint == nil || *tool.Annotations.DestructiveHint != wantDestructive[tool.Name] {
+			t.Errorf("tool %q destructive hint = %v, want %t", tool.Name, tool.Annotations.DestructiveHint, wantDestructive[tool.Name])
 		}
 		if tool.Name != "start_run" {
 			continue

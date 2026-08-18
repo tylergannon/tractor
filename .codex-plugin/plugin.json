@@ -8,7 +8,6 @@
   },
   "repository": "https://github.com/tylergannon/tractor",
   "keywords": ["agents", "mcp", "pipelines", "tractor"],
-  "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "Tractor",

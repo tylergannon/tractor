@@ -8,7 +8,7 @@
       "name": "tractor",
       "source": {
         "source": "url",
-        "url": "https://github.com/tylergannon/tractor.git",
+        "url": "git@github.com:tylergannon/tractor.git",
         "ref": "main"
       },
       "policy": {
