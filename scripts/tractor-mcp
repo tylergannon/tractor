@@ -3,21 +3,35 @@ set -eu
 
 plugin_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cache_root=${XDG_CACHE_HOME:-"$HOME/.cache"}/tractor/codex-plugin
-candidate=$cache_root/tractor.$$
-
 mkdir -p "$cache_root"
-trap 'rm -f "$candidate"' EXIT HUP INT TERM
+run_root=$(mktemp -d "$cache_root/run.XXXXXX")
+binary=$run_root/tractor
+server_pid=
+
+cleanup() {
+	rm -rf "$run_root"
+}
+
+forward_signal() {
+	if [ -n "$server_pid" ]; then
+		kill -TERM "$server_pid" 2>/dev/null || true
+	fi
+}
+
+trap cleanup EXIT
+trap forward_signal HUP INT TERM
 
 cd "$plugin_root"
-go build -o "$candidate" ./cmd/tractor
-if command -v sha256sum >/dev/null 2>&1; then
-	binary_hash=$(sha256sum "$candidate")
-else
-	binary_hash=$(shasum -a 256 "$candidate")
-fi
-binary_hash=${binary_hash%% *}
-binary=$cache_root/tractor-$binary_hash
-mv -f "$candidate" "$binary"
-trap - EXIT HUP INT TERM
+go build -o "$binary" ./cmd/tractor
+"$binary" mcp <&0 &
+server_pid=$!
 
-exec "$binary" mcp
+set +e
+wait "$server_pid"
+status=$?
+while kill -0 "$server_pid" 2>/dev/null; do
+	wait "$server_pid"
+	status=$?
+done
+set -e
+exit "$status"

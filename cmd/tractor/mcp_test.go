@@ -329,6 +329,10 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 	if err := syscall.Kill(-command.Process.Pid, syscall.Signal(0)); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("process group still exists: %v", err)
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for processExists(detachedPID) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
 	if processExists(detachedPID) {
 		t.Fatalf("detached descendant process %d still exists", detachedPID)
 	}
@@ -346,7 +350,9 @@ func TestMCPDetachedProcessHelper(t *testing.T) {
 	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	select {}
+	for {
+		time.Sleep(time.Hour)
+	}
 }
 
 func startMCPRun(t *testing.T, ctx context.Context, session *client.Client, pipeline string) startRunOutput {

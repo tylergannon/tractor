@@ -500,19 +500,19 @@ func waitForRunDone(run *managedRun, timeout time.Duration) bool {
 
 func forceRunStop(run *managedRun) error {
 	pid := run.command.Process.Pid
+	if err := run.command.Process.Signal(syscall.SIGSTOP); err != nil {
+		if errors.Is(err, os.ErrProcessDone) {
+			return nil
+		}
+		return fmt.Errorf("freeze Tractor run %s before forced stop: %w", run.id, err)
+	}
 	descendantGroups, scanErr := descendantProcessGroups(pid)
 	var stopErrs []error
 	if scanErr != nil {
 		stopErrs = append(stopErrs, scanErr)
 	}
-	leaderErr := run.command.Process.Kill()
-	if leaderErr != nil && !errors.Is(leaderErr, os.ErrProcessDone) {
-		stopErrs = append(stopErrs, fmt.Errorf("kill Tractor run %s: %w", run.id, leaderErr))
-	}
-	if leaderErr == nil {
-		if err := killProcessGroup(pid); err != nil {
-			stopErrs = append(stopErrs, fmt.Errorf("kill Tractor run %s process group: %w", run.id, err))
-		}
+	if err := killProcessGroup(pid); err != nil {
+		stopErrs = append(stopErrs, fmt.Errorf("kill Tractor run %s process group: %w", run.id, err))
 	}
 	for _, processGroup := range descendantGroups {
 		if err := killProcessGroup(processGroup); err != nil {

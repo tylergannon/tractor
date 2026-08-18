@@ -5,3 +5,5 @@ correction: Cache launcher binaries by the resolved plugin root so an installed,
 correction: Re-check run completion immediately before a raw process-group kill so a reaped PID cannot be signaled after the graceful stop window.
 correction: A Tractor run can contain tool commands in their own process groups; forced MCP shutdown must discover and terminate detached descendant groups before considering the session closed.
 decision: Use a content-addressed launcher executable so concurrent launches and later development rebuilds cannot change the binary used by an existing MCP server or its child runs.
+correction: Persistent content-addressed launcher binaries accumulate across plugin revisions; use a unique per-session build, forward signals through the launcher, and remove the build only after the server has stopped its child runs.
+correction: Freeze the owned run leader before inspecting detached descendant groups so its PID and ancestry cannot be recycled during the forced-stop scan.

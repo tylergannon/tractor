@@ -17,12 +17,11 @@ server through:
 
 The source-distributed plugin therefore requires Go 1.26 or newer. The first
 launch may download modules; subsequent launches reuse Go's build cache. The
-launcher builds the plugin snapshot into a content-addressed executable and
-then replaces itself with the resulting `tractor mcp` process, so host signals
-reach the server directly. The content address also keeps each server and the
-runs it starts on one immutable build. Building from the snapshot is
-intentional: the MCP server and graph language are always compiled from the same
-revision.
+launcher builds the plugin snapshot into a per-session temporary executable,
+forwards host signals to it, and removes it after the server exits. Each server
+and the runs it starts therefore use one immutable build without accumulating a
+second binary cache. Building from the snapshot is intentional: the MCP server
+and graph language are always compiled from the same revision.
 
 The server exposes deferred tools to validate, start, monitor, steer, and stop
 pipeline runs. Their input schemas contain only operational arguments such as
