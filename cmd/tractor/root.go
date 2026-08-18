@@ -13,6 +13,7 @@ import (
 	"github.com/tylergannon/tractor/engine"
 	"github.com/tylergannon/tractor/graph"
 	"github.com/tylergannon/tractor/harness"
+	"github.com/tylergannon/tractor/harness/agy"
 	"github.com/tylergannon/tractor/harness/claude"
 	"github.com/tylergannon/tractor/harness/codex"
 	"github.com/tylergannon/tractor/lint"
@@ -165,9 +166,12 @@ func runPipeline(command *cobra.Command, pipeline graph.Graph, workdir, logsRoot
 	claudeAdapter := claude.New()
 	claudeAdapter.SetStderr(command.ErrOrStderr())
 	defer claudeAdapter.Close()
+	agyAdapter := agy.New()
+	agyAdapter.SetStderr(command.ErrOrStderr())
+	defer agyAdapter.Close()
 	backend, backendErr := harness.NewHarnessBackend(
 		logsRoot,
-		map[string]harness.HarnessAdapter{"codex": codexAdapter, "claude": claudeAdapter},
+		map[string]harness.HarnessAdapter{"agy": agyAdapter, "codex": codexAdapter, "claude": claudeAdapter},
 		harness.DefaultProviderRoutes(),
 		bindings,
 	)

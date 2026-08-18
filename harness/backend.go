@@ -17,6 +17,7 @@ const noneThreadPrefix = "\x00none:"
 func DefaultProviderRoutes() map[string]string {
 	return map[string]string{
 		"anthropic": "claude",
+		"gemini":    "agy",
 		"openai":    "codex",
 	}
 }

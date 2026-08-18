@@ -12,7 +12,7 @@ authority notice, the imported document matched that source byte-for-byte.
 The archived project's [north star](https://github.com/tylergannon/attractor/blob/0aca8b748e6ecc23446fc690d2b66690b77fe0d3/ephemeral/projects/spec-rebuild/north-star.md)
 captures the thrust of this variant: replace DOT with a closed typed JSON graph,
 put routing on the node whose occupant makes the choice, run work through
-existing Codex and Claude harnesses, and make steering, context fidelity,
+existing Codex, Claude, and Antigravity harnesses, and make steering, context fidelity,
 uniform checkpointing, isolated parallel worktrees, and live advisory
 supervision first-class. It also applies a strict cost razor to new language and
 protocol surface, keeps human interaction and extensions in ordinary authored
@@ -24,7 +24,7 @@ part of Tractor today. See the
 source-backed account of the useful gaps, deliberate exclusions, and their
 tradeoffs.
 
-Tractor has four documented implementation choices around that contract:
+Tractor has five documented implementation choices around that contract:
 
 - Pipeline files may be JSON, YAML, or YML; inline documents use `--json` or
   `--yaml`. YAML is a Tractor authoring extension decoded through the same
@@ -47,6 +47,10 @@ Tractor has four documented implementation choices around that contract:
   properties as required nullable fields, removes returned nulls for fields
   that were optional, and validates the result against the caller's unchanged
   schema. Claude receives the caller schema unchanged.
+- Gemini models route through the authenticated `agy` CLI. Tractor validates
+  agy's structured output locally and allows one repair turn; `agy` print mode
+  has no live steering channel, so steering is a documented no-op for this
+  adapter while context compaction remains service-managed.
 Runnable, self-verifying workflows for external steering, parallel
 fan-out/fan-in, YAML input, and live supervision are in
 [`examples/`](examples/README.md).

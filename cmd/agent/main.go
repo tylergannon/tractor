@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tylergannon/tractor/harness"
+	"github.com/tylergannon/tractor/harness/agy"
 	"github.com/tylergannon/tractor/harness/claude"
 	"github.com/tylergannon/tractor/harness/codex"
 	"github.com/tylergannon/tractor/internal/runlog"
@@ -56,7 +57,7 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("agent", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
 	var values options
-	flags.StringVar(&values.provider, "provider", "", "provider (standalone: openai or anthropic)")
+	flags.StringVar(&values.provider, "provider", "", "provider (standalone: openai, anthropic, or gemini)")
 	flags.StringVar(&values.model, "model", "", "model (standalone required)")
 	flags.StringVar(&values.reasoningEffort, "reasoning-effort", "", "reasoning effort (standalone required)")
 	flags.StringVar(&values.sessionID, "session", "", "existing native session ID")
@@ -102,6 +103,9 @@ func run(args []string) error {
 	claudeAdapter := claude.New()
 	claudeAdapter.SetStderr(os.Stderr)
 	defer claudeAdapter.Close()
+	agyAdapter := agy.New()
+	agyAdapter.SetStderr(os.Stderr)
+	defer agyAdapter.Close()
 	harnessName, err := harnessForProvider(selection.provider)
 	if err != nil {
 		return err
@@ -114,8 +118,8 @@ func run(args []string) error {
 	}
 	backend, backendErr := harness.NewHarnessBackend(
 		selection.logsRoot,
-		map[string]harness.HarnessAdapter{"codex": codexAdapter, "claude": claudeAdapter},
-		map[string]string{"openai": "codex", "anthropic": "claude"},
+		map[string]harness.HarnessAdapter{"agy": agyAdapter, "codex": codexAdapter, "claude": claudeAdapter},
+		harness.DefaultProviderRoutes(),
 		bindings,
 	)
 	if backendErr != nil {
@@ -209,6 +213,8 @@ func harnessForProvider(provider string) (string, error) {
 		return "codex", nil
 	case "anthropic":
 		return "claude", nil
+	case "gemini":
+		return "agy", nil
 	default:
 		return "", fmt.Errorf("unsupported provider %q", provider)
 	}

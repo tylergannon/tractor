@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Envelope",
+  "type": "object",
+  "properties": {
+    "event": { "type": "string" },
+    "conversation_id": { "type": "string" },
+    "init": { "$ref": "#/$defs/Init" },
+    "step_update": { "$ref": "#/$defs/StepUpdate" },
+    "result": { "$ref": "#/$defs/Result" }
+  },
+  "required": ["event"],
+  "additionalProperties": true,
+  "$defs": {
+    "Init": {
+      "type": "object",
+      "properties": {
+        "conversation_id": { "type": "string" },
+        "json_schema": {}
+      },
+      "additionalProperties": true
+    },
+    "StepUpdate": {
+      "type": "object",
+      "properties": {
+        "step_index": { "type": "integer" },
+        "step_type": { "type": "string" },
+        "state": { "type": "string" },
+        "text_delta": { "type": "string" },
+        "tool_info": { "$ref": "#/$defs/ToolInfo" },
+        "usage": {}
+      },
+      "additionalProperties": true
+    },
+    "ToolInfo": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "parameters": {},
+        "output": {},
+        "error": {}
+      },
+      "additionalProperties": true
+    },
+    "Result": {
+      "type": "object",
+      "properties": {
+        "conversation_id": { "type": "string" },
+        "status": { "type": "string" },
+        "response": { "type": "string" },
+        "error": { "type": "string" },
+        "structured_output": {},
+        "json_schema": {},
+        "usage": {}
+      },
+      "additionalProperties": true
+    }
+  }
+}

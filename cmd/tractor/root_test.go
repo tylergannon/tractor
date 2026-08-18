@@ -210,7 +210,7 @@ func TestResolveHarnessUsesExecutionProviderDetectionAndSystemModel(t *testing.T
 		{model: "claude-opus-4-6", want: "claude"},
 		{model: "gpt-5.6-sol", want: "codex"},
 		{want: "codex"},
-		{model: "gemini-2.5-pro", wantErr: `provider "gemini"`},
+		{model: "gemini-2.5-pro", want: "agy"},
 	}
 	for _, test := range tests {
 		got, err := resolveHarness(test.provider, test.model)
