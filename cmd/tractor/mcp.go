@@ -433,6 +433,9 @@ func requestRunStop(run *managedRun) (string, error) {
 		if remaining > 0 && waitForRunDone(run, remaining) {
 			return currentRunStatus(run), nil
 		}
+		if waitForRunDone(run, 0) {
+			return currentRunStatus(run), nil
+		}
 		if err := forceRunStop(run); err != nil {
 			return "", err
 		}
