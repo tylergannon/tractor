@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "tractor": {
-      "command": "go",
-      "args": ["run", "./cmd/tractor", "mcp"],
+      "command": "./scripts/tractor-mcp",
+      "args": [],
       "cwd": "."
     }
   }

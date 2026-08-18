@@ -4,7 +4,7 @@
 **Host:** Claude Code (Claude Agent SDK), not Codex. The task named a "Codex tool registry";
 this run was executed by a Claude Code session, so registry observations below describe that
 host's deferred-tool mechanism. Everything else is verbatim tool output.
-**Transport:** `tractor` MCP server over stdio (plugin-installed).
+**Transport:** `tractor` MCP server over stdio from the repository MCP configuration.
 **Method:** MCP tool calls only. No `tractor` binary was invoked via shell. Shell was used
 solely to read run artifacts off disk after the run reached a terminal state.
 

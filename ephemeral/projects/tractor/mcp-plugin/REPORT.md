@@ -27,7 +27,7 @@ start the pipeline, poll its status, and load its checkpoint.
 
 ```json
 {
-  "plugin_command": "go [run ./cmd/tractor mcp]",
+  "plugin_command": "./scripts/tractor-mcp []",
   "server_name": "tractor",
   "server_version": "0.1.0",
   "tools": [
@@ -42,8 +42,8 @@ start the pipeline, poll its status, and load its checkpoint.
   "start_schema_bytes": 554,
   "graph_schema_sha256": "ee9310f1743fbe4cf2bb99565529379a05318e95b2e95198156040b47307b350",
   "schema_matches_graph_type": true,
-  "run_id": "187c3c56611e368754e40bfdd338d989",
-  "run_pid": 43187,
+  "run_id": "7a1888327e4143dd0c99f222b8f637e9",
+  "run_pid": 50670,
   "run_status": "COMPLETED",
   "exit_code": 0,
   "current_node": "done",
@@ -55,7 +55,7 @@ start the pipeline, poll its status, and load its checkpoint.
 The child process also wrote `COMPLETED` to `mcp-stdout.log`, nothing to
 `mcp-stderr.log`, and a `PipelineCompleted` event to `timeline.jsonl`. Its
 checkpoint SHA-256 is
-`0190d4c07bb2fb0b8da0b5e679bc8d68efda5e34aaa06ef2ee38c06b97b9dc29`.
+`fa728de457055d5a9844c4fe8a5ab9e04b1f9ce4e0c109c3fc69ed267e1b4475`.
 
 Focused stdio integration tests additionally start a 30-second tool pipeline,
 reach its real Unix-socket steering endpoint, stop it through MCP, and assert
@@ -72,4 +72,4 @@ Plugin validation passed: /Users/tyler/src/.worktrees/tractor/mcp-plugin
 The plugin descriptor SHA-256 is
 `0a1a3a74491049702bfd7ca189108117ed494608ec5e28eef03b091496f3da9d` and
 the MCP configuration SHA-256 is
-`c6854608a298fd169f9e467b5935acfa2a59bfeef879e05815668416bc161c9d`.
+`0be5ea0408b14389a0ccbb826cdecb98684a6b32cf6ed13a1ca36ba24de92dad`.

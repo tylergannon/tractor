@@ -13,9 +13,11 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -28,6 +30,11 @@ import (
 )
 
 const tractorMCPVersion = "0.1.0"
+
+const (
+	gracefulRunStopTimeout = 500 * time.Millisecond
+	forcedRunStopTimeout   = time.Second
+)
 
 type tractorMCPServer struct {
 	mu   sync.Mutex
@@ -50,6 +57,7 @@ type managedRun struct {
 	exitCode   *int
 	failure    string
 	done       chan struct{}
+	stopAt     time.Time
 }
 
 type emptyInput struct{}
@@ -131,7 +139,9 @@ func newMCPCommand() *cobra.Command {
 		Short: "Serve Tractor tools over MCP stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			return runTractorMCP(command.Context())
+			ctx, stopSignals := signal.NotifyContext(command.Context(), os.Interrupt, syscall.SIGTERM)
+			defer stopSignals()
+			return runTractorMCP(ctx)
 		},
 	}
 }
@@ -238,11 +248,15 @@ func (s *tractorMCPServer) startRun(_ context.Context, _ mcp.CallToolRequest, in
 
 	stdoutPath := filepath.Join(logsRoot, "mcp-stdout.log")
 	stderrPath := filepath.Join(logsRoot, "mcp-stderr.log")
-	stdout, err := os.OpenFile(stdoutPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	logFlags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	if input.Resume {
+		logFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	}
+	stdout, err := os.OpenFile(stdoutPath, logFlags, 0o644)
 	if err != nil {
 		return startRunOutput{}, fmt.Errorf("open run stdout: %w", err)
 	}
-	stderr, err := os.OpenFile(stderrPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	stderr, err := os.OpenFile(stderrPath, logFlags, 0o644)
 	if err != nil {
 		_ = stdout.Close()
 		return startRunOutput{}, fmt.Errorf("open run stderr: %w", err)
@@ -262,6 +276,7 @@ func (s *tractorMCPServer) startRun(_ context.Context, _ mcp.CallToolRequest, in
 	command.Dir = workdir
 	command.Stdout = stdout
 	command.Stderr = stderr
+	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := command.Start(); err != nil {
 		_ = stdout.Close()
 		_ = stderr.Close()
@@ -410,10 +425,30 @@ func (s *tractorMCPServer) stopRun(_ context.Context, _ mcp.CallToolRequest, inp
 
 func requestRunStop(run *managedRun) (string, error) {
 	run.mu.Lock()
-	if run.status != "RUNNING" {
+	switch run.status {
+	case "STOPPING":
+		stopAt := run.stopAt
+		run.mu.Unlock()
+		remaining := time.Until(stopAt.Add(gracefulRunStopTimeout))
+		if remaining > 0 && waitForRunDone(run, remaining) {
+			return currentRunStatus(run), nil
+		}
+		if err := forceRunStop(run); err != nil {
+			return "", err
+		}
+		if !waitForRunDone(run, forcedRunStopTimeout) {
+			return "", errors.New("timed out waiting for Tractor run to stop")
+		}
+		return currentRunStatus(run), nil
+	case "RUNNING":
+	case "COMPLETED", "FAILED", "STOPPED":
 		status := run.status
 		run.mu.Unlock()
 		return status, nil
+	default:
+		status := run.status
+		run.mu.Unlock()
+		return "", fmt.Errorf("run has unknown status %q", status)
 	}
 	if err := run.command.Process.Signal(os.Interrupt); err != nil {
 		done := run.done
@@ -431,8 +466,43 @@ func requestRunStop(run *managedRun) (string, error) {
 		return status, nil
 	}
 	run.status = "STOPPING"
+	run.stopAt = time.Now()
 	run.mu.Unlock()
 	return "STOPPING", nil
+}
+
+func currentRunStatus(run *managedRun) string {
+	run.mu.Lock()
+	defer run.mu.Unlock()
+	return run.status
+}
+
+func waitForRunDone(run *managedRun, timeout time.Duration) bool {
+	if timeout <= 0 {
+		select {
+		case <-run.done:
+			return true
+		default:
+			return false
+		}
+	}
+	select {
+	case <-run.done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func forceRunStop(run *managedRun) error {
+	err := syscall.Kill(-run.command.Process.Pid, syscall.SIGKILL)
+	if errors.Is(err, syscall.ESRCH) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("kill Tractor run %s process group: %w", run.id, err)
+	}
+	return nil
 }
 
 func (s *tractorMCPServer) shutdownRuns() error {
@@ -445,10 +515,39 @@ func (s *tractorMCPServer) shutdownRuns() error {
 
 	var shutdownErrs []error
 	for _, run := range runs {
-		if _, err := requestRunStop(run); err != nil {
+		run.mu.Lock()
+		if run.status != "RUNNING" {
+			run.mu.Unlock()
+			continue
+		}
+		err := run.command.Process.Signal(os.Interrupt)
+		if err == nil {
+			run.status = "STOPPING"
+			run.stopAt = time.Now()
+		}
+		run.mu.Unlock()
+		if err != nil && !errors.Is(err, os.ErrProcessDone) {
 			shutdownErrs = append(shutdownErrs, err)
 		}
 	}
+	if waitForAllRuns(runs, gracefulRunStopTimeout) {
+		return errors.Join(shutdownErrs...)
+	}
+	for _, run := range runs {
+		if waitForRunDone(run, 0) {
+			continue
+		}
+		if err := forceRunStop(run); err != nil {
+			shutdownErrs = append(shutdownErrs, err)
+		}
+	}
+	if !waitForAllRuns(runs, forcedRunStopTimeout) {
+		shutdownErrs = append(shutdownErrs, errors.New("timed out waiting for Tractor runs to stop"))
+	}
+	return errors.Join(shutdownErrs...)
+}
+
+func waitForAllRuns(runs []*managedRun, timeout time.Duration) bool {
 	allDone := make(chan struct{})
 	go func() {
 		for _, run := range runs {
@@ -458,25 +557,10 @@ func (s *tractorMCPServer) shutdownRuns() error {
 	}()
 	select {
 	case <-allDone:
-		return errors.Join(shutdownErrs...)
-	case <-time.After(5 * time.Second):
+		return true
+	case <-time.After(timeout):
+		return false
 	}
-	for _, run := range runs {
-		select {
-		case <-run.done:
-			continue
-		default:
-		}
-		if err := run.command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-			shutdownErrs = append(shutdownErrs, fmt.Errorf("kill Tractor run %s: %w", run.id, err))
-		}
-	}
-	select {
-	case <-allDone:
-	case <-time.After(time.Second):
-		shutdownErrs = append(shutdownErrs, errors.New("timed out waiting for Tractor runs to stop"))
-	}
-	return errors.Join(shutdownErrs...)
 }
 
 func (s *tractorMCPServer) lookupRun(runID string) (*managedRun, error) {
@@ -564,12 +648,22 @@ func newMCPRunID() (string, error) {
 }
 
 func readTail(path string, limit int) string {
-	raw, err := os.ReadFile(path)
+	file, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
-	if len(raw) > limit {
-		raw = raw[len(raw)-limit:]
+	defer func() { _ = file.Close() }()
+	info, err := file.Stat()
+	if err != nil {
+		return ""
+	}
+	offset := max(info.Size()-int64(limit), 0)
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, int64(limit)))
+	if err != nil {
+		return ""
 	}
 	return string(raw)
 }

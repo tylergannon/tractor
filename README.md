@@ -9,16 +9,18 @@ fan-out/fan-in are in [`examples/`](examples/README.md).
 ## Codex plugin and MCP server
 
 This repository is also a Codex plugin. Its `.mcp.json` launches the stdio
-server from the plugin's own source with:
+server through:
 
 ```sh
-go run ./cmd/tractor mcp
+./scripts/tractor-mcp
 ```
 
 The source-distributed plugin therefore requires Go 1.26 or newer. The first
-launch may download modules; subsequent launches reuse Go's build cache. Building
-from the plugin snapshot is intentional: the MCP server and graph language are
-always compiled from the same revision.
+launch may download modules; subsequent launches reuse Go's build cache. The
+launcher builds the plugin snapshot and then replaces itself with the resulting
+`tractor mcp` process, so host signals reach the server directly. Building from
+the snapshot is intentional: the MCP server and graph language are always
+compiled from the same revision.
 
 The server exposes deferred tools to validate, start, monitor, steer, and stop
 pipeline runs. Their input schemas contain only operational arguments such as
