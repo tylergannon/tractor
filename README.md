@@ -1,8 +1,28 @@
 # Tractor
 
-Tractor is the Go implementation of the normative [Attractor
-specification](docs/spec.md). That document is copied byte-for-byte from
-upstream revision `0aca8b748e6ecc23446fc690d2b66690b77fe0d3`.
+Tractor is the reference Go implementation of its Attractor variant. The
+[Tractor Attractor specification](docs/spec.md) is the sole normative and
+authoritative definition of that variant; where Tractor's code, schemas,
+examples, or other documentation disagree with it, the specification governs.
+The substantive specification moved here from the now-archived
+`tylergannon/attractor` repository at revision
+`0aca8b748e6ecc23446fc690d2b66690b77fe0d3`. Before Tractor added its explicit
+authority notice, the imported document matched that source byte-for-byte.
+
+The archived project's [north star](https://github.com/tylergannon/attractor/blob/0aca8b748e6ecc23446fc690d2b66690b77fe0d3/ephemeral/projects/spec-rebuild/north-star.md)
+captures the thrust of this variant: replace DOT with a closed typed JSON graph,
+put routing on the node whose occupant makes the choice, run work through
+existing Codex and Claude harnesses, and make steering, context fidelity,
+uniform checkpointing, isolated parallel worktrees, and live advisory
+supervision first-class. It also applies a strict cost razor to new language and
+protocol surface, keeps human interaction and extensions in ordinary authored
+nodes or build-time code, and reserves usage-aware routing as future work.
+
+The archived implementation also contains ideas that are intentionally not
+part of Tractor today. See the
+[Attractor archive inventory](docs/attractor-archive-inventory.md) for a
+source-backed account of the useful gaps, deliberate exclusions, and their
+tradeoffs.
 
 Tractor has four documented implementation choices around that contract:
 
