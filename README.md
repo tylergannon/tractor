@@ -1,8 +1,14 @@
 # Tractor
 
-Tractor is the Go implementation of the normative [Attractor
-specification](docs/spec.md). That document is copied byte-for-byte from
-upstream revision `0aca8b748e6ecc23446fc690d2b66690b77fe0d3`.
+Tractor is the reference Go implementation and owner of the normative
+[Attractor specification](docs/spec.md). The specification moved here from the
+now-archived `tylergannon/attractor` repository at revision
+`0aca8b748e6ecc23446fc690d2b66690b77fe0d3`; its contents remain byte-for-byte
+identical to that source revision.
+
+The archived implementation also contains ideas that are intentionally not
+part of Tractor today. See the [Attractor archive inventory](docs/attractor-archive-inventory.md)
+for a source-backed list of the pieces still worth remembering.
 
 Tractor has four documented implementation choices around that contract:
 
