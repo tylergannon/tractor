@@ -1,0 +1,21 @@
+{
+  "name": "tractor",
+  "interface": {
+    "displayName": "Tractor"
+  },
+  "plugins": [
+    {
+      "name": "tractor",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/tylergannon/tractor.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

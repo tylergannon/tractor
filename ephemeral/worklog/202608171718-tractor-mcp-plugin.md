@@ -10,3 +10,4 @@ correction: Freeze the owned run leader before inspecting detached descendant gr
 correction: Run metadata other than checkpoints also needs temp-file-and-rename writes so a bounded forced shutdown cannot leave truncated JSON artifacts.
 correction: A shell wrapper cannot portably background a stdio MCP server because POSIX shells may attach asynchronous commands to /dev/null; keep the final launcher step as exec.
 decision: Tool groups are authoritatively canceled inside Tractor when the initial stop signal is broadcast; test that real shutdown path directly instead of reconstructing the global process tree with ps.
+decision: Publish a repository marketplace and llms.txt that cover plugin installation and MCP operation only; defer pipeline-authoring guidance to later documentation work.

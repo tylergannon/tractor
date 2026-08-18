@@ -1,0 +1,57 @@
+# Tractor
+
+> Tractor runs and steers Attractor-compatible agent pipelines. This repository is a Codex plugin with a deferred stdio MCP tool surface.
+
+Repository: https://github.com/tylergannon/tractor
+
+## Requirements
+
+- Codex with plugin marketplace support.
+- Go 1.26 or newer on the machine running the plugin.
+- Repository access when the GitHub repository is private.
+
+## Install in Codex
+
+```sh
+codex plugin marketplace add tylergannon/tractor
+codex plugin add tractor@tractor
+```
+
+Start a new Codex task after installation so the plugin's MCP server and skill are loaded.
+
+## MCP server
+
+The plugin starts `./scripts/tractor-mcp` from its installed snapshot. The launcher builds that snapshot and speaks MCP over stdin and stdout. It does not require a separately installed `tractor` binary.
+
+The server uses `github.com/mark3labs/mcp-go`. All tools are deferred, so their definitions are loaded only when Codex needs them. Pipeline arguments are file paths rather than embedded graph schemas.
+
+## Tools
+
+- `validate_pipeline`: validate a JSON, YAML, or YML pipeline file.
+- `start_run`: start a validated pipeline and return its run ID, process ID, and log paths.
+- `get_run_status`: inspect a run by run ID.
+- `steer_run`: send text to the run's active steerable turn.
+- `stop_run`: request that a run stop.
+- `get_pipeline_schema`: return Tractor's current graph JSON Schema on demand.
+
+`validate_pipeline` and `start_run` accept `pipeline_path` and an optional `workdir`. Later operations use the `run_id` returned by `start_run`. Runs belong to the MCP stdio session and are stopped when that session closes.
+
+## Schema synchronization
+
+`get_pipeline_schema` returns `graph.Graph{}.Schema()` directly. Validation and execution call Tractor's existing parser and runtime validator. The plugin does not maintain a second copy of the graph schema.
+
+## Direct stdio use
+
+From a source checkout:
+
+```sh
+./scripts/tractor-mcp
+```
+
+From an installed Tractor binary:
+
+```sh
+tractor mcp
+```
+
+Both commands reserve stdout for MCP protocol messages. Run output and diagnostics are written to the run paths returned by `start_run`.

@@ -15,6 +15,16 @@ server through:
 ./scripts/tractor-mcp
 ```
 
+Install it from the repository marketplace:
+
+```sh
+codex plugin marketplace add tylergannon/tractor
+codex plugin add tractor@tractor
+```
+
+Start a new Codex task after installation. See [`llms.txt`](llms.txt) for the
+agent-oriented installation and MCP usage reference.
+
 The source-distributed plugin therefore requires Go 1.26 or newer. The first
 launch may download modules; subsequent launches reuse Go's build cache. The
 launcher builds the plugin snapshot into an immutable, build-ID-addressed cache
