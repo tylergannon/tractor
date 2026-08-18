@@ -11,6 +11,35 @@ and Tractor at `37df42b07c8f3db41b176d51c243646be79eaa1f`. Attractor's
 unmerged branches remain available in the archive but are outside this
 inventory's implementation claims.
 
+## What Tractor actually loses
+
+Not every missing mechanism makes Tractor worse. The north star deliberately
+removes routing policy from the engine and applies a cost razor to every field,
+status, and endpoint. The useful comparison is therefore the concrete cost of
+an omission, not the archive's feature count.
+
+| Archived idea | Cost to Tractor today | Assessment |
+| --- | --- | --- |
+| [Stable model aliases](https://github.com/tylergannon/tractor/issues/11) | Pipeline authors must pin provider-native names everywhere, so coordinated upgrades are noisy and defaults can drift across entry points. | Clear small gap; preserve raw model IDs as an escape hatch. |
+| [Sortable run IDs](https://github.com/tylergannon/tractor/issues/12) | Manifest IDs, directory names, CLI output, and MCP state use separate identity or ordering conventions, making runs harder to correlate by eye and by tooling. | Clear small gap; one opaque sortable ID should travel end to end. |
+| [Usage and quota telemetry](https://github.com/tylergannon/tractor/issues/13) | Tractor records native events but cannot answer basic typed questions about token burn, context pressure, or quota reset windows. That blocks budgets and the north star's reserved usage-aware routing work. | Clear gap; normalize the stable common fields while retaining raw provider observations. |
+| [Fully generated Codex protocol](https://github.com/tylergannon/tractor/issues/10) | Handwritten JSON-RPC envelopes and response shapes can silently drift from Codex app-server, leave capabilities undiscoverable, and turn protocol changes into runtime failures. | Clear correctness and maintenance gap; the complete checked-in protocol surface should be generated. |
+| Structured command context | Tool nodes must use ambient environment or files for richer inputs and outputs, weakening validation, provenance, and composition. | Real but narrower gap; worth considering without creating a second workflow data plane. |
+| One external-contract registry | Reviewers cannot enumerate and compile every CLI, MCP, graph, and harness receipt boundary from one place, so strictness can diverge between entry points. | Real auditability gap; useful if it remains generated from owners rather than duplicating schemas. |
+| Focused authoring and harness docs | New users must reconstruct graph-language and provider-operation rules from the large spec, examples, and implementation. | Real discoverability gap with little runtime risk. |
+| Explicit interrupt and close outcomes | Callers have less precise evidence that work stopped, output flushed, or a session was already absent. | Real lifecycle-observability gap, but lower priority than making the existing wire contract generated. |
+| Author-configurable retry policy | Workflows cannot tune delay caps or jitter for expensive and rate-limited providers. | Situational gap; extra knobs must earn their cost and should not expose implementation accidents. |
+| Settings groups | Repeated node-local policy can drift across large graphs. | A convenience gap, but the north star's cost razor favors explicit fields until repetition is demonstrated in real pipelines. |
+| Rich outcome-directed routing and goal gates | None relative to the chosen model: adding them would let the engine interpret agent verdicts and recreate routing policy outside node occupants. | Deliberate exclusion; Tractor is better off without it. |
+| Engine-level human and child-manager nodes | None for current scope: ordinary codergen/tool nodes and CLI-invoking nodes already express these patterns without new protocols. | Deliberate exclusion; reconsider only with a scenario ordinary nodes cannot express. |
+| Native tool-call hooks | None at the Tractor layer: harnesses already own native tool policy, and another interception surface would duplicate it. | Deliberate exclusion. |
+| Alternative parallel join policies | Tractor cannot race branches and accept the first success, but doing so creates cancellation, evidence, and workspace-ownership semantics absent from the normative convergence model. | A possible future mode, not a present deficit. |
+
+The first four are the obvious near-term candidates. The middle group names
+specific ways Tractor is worse off but still has to clear the cost razor. The
+last group is retained as design history, not as a recommendation to reverse
+ratified decisions.
+
 ## Working or substantially working ideas
 
 ### A richer outcome and routing data plane
@@ -97,9 +126,13 @@ for the complete protocol surface. Tractor generates and retains only the
 request model it currently needs, then uses small hand-written JSON-RPC types
 for the rest.
 
-Tractor's approach is smaller; Attractor's is better for compile-time discovery
-of new capabilities, protocol-drift reviews, and future adapter work that needs
-more than today's narrow request set.
+The original Tractor design explicitly chose narrow request generation and a
+handwritten observed response surface. That choice leaves Tractor worse off:
+wire drift is caught at runtime, protocol coverage is difficult to audit, and
+new app-server capabilities remain invisible until someone manually models
+them. The complete checked-in app-server schema and every Go wire type should
+be generated, with handwritten code limited to behavior rather than protocol
+shape.
 
 Sources: [schema generator](https://github.com/tylergannon/attractor/blob/0aca8b748e6ecc23446fc690d2b66690b77fe0d3/internal/codexapp/schema/generate.go)
 and [generated types](https://github.com/tylergannon/attractor/blob/0aca8b748e6ecc23446fc690d2b66690b77fe0d3/internal/codexapp/schema/types_gen.go).
@@ -137,7 +170,8 @@ alias registry.
 
 Aliases can keep workflow files readable and allow a coordinated model upgrade.
 They also create a maintenance obligation, so the small isolated resolver is a
-good pattern if Tractor ever adopts them.
+good pattern if Tractor adopts them. Without one, every authored graph becomes
+its own model-version policy and repository-wide upgrades require noisy edits.
 
 Source: [model alias resolver](https://github.com/tylergannon/attractor/blob/0aca8b748e6ecc23446fc690d2b66690b77fe0d3/internal/modelalias/modelalias.go).
 

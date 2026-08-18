@@ -7,3 +7,9 @@ decision: Tractor docs/spec.md already matches the source byte-for-byte at SHA-2
 decision: Separate archive ideas that worked from designs the archive itself rejected or did not execute, so the inventory does not overstate legacy functionality.
 
 friction: A zsh verification loop used `path` as an iterator and thereby replaced zsh's special command-search array, making `git` disappear for that shell invocation -> never use `path` as a zsh local or loop variable; use a task-specific name such as `source_file`.
+
+correction: The README and spec must both visibly identify docs/spec.md as authoritative for Tractor's Attractor variant, and the README must carry a short summary of the archived north star's modifications.
+
+correction: Treat full Codex app-server protocol generation as desired work. The original Tractor design explicitly chose narrow TurnStartParams generation and a handwritten observed response surface; that implementation choice does not satisfy the user's intended all-generated wire contract.
+
+decision: Classify archive ideas by actual cost and north-star fit. Do not claim Tractor is worse without mechanisms the ratified direction deliberately excludes.

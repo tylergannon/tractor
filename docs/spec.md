@@ -1,15 +1,20 @@
 <!--
-  This is the normative specification for this project.
+  This is the normative and authoritative specification for Tractor's
+  Attractor variant.
 
   It is a standalone document: it must be readable and implementable
-  without reference to any other specification. The project north star
-  (ephemeral/projects/spec-rebuild/north-star.md) governs its design
-  direction; docs/attractor-spec.md is a historical reference only.
+  without reference to any other specification. The archived project's north
+  star informed its design direction; historical sources are provenance only.
   Never describe a feature by comparison to another document -- describe
   what it is.
 -->
 
 # Attractor Specification
+
+> [!IMPORTANT]
+> This document is the normative and authoritative definition of Tractor's
+> Attractor variant. If Tractor's implementation, generated schemas, examples,
+> or other documentation conflict with this document, this document governs.
 
 A pipeline runner that uses directed graphs (defined in a typed JSON schema) to orchestrate multi-stage AI workflows. Each node in the graph is a task (LLM call, tool check, parallel fan-out, etc.) and each node's routing fields define the flow onward from it.
 
