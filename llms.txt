@@ -13,14 +13,15 @@ Repository: https://github.com/tylergannon/tractor
 ## Install in Codex
 
 ```sh
-go install github.com/tylergannon/tractor/cmd/tractor@latest
-codex plugin marketplace add tylergannon/tractor
-codex plugin add tractor@tractor
+curl -fsSL https://raw.githubusercontent.com/tylergannon/tractor/main/scripts/install.sh | sh
 ```
 
-`go install` writes to `GOBIN`, or to `GOPATH/bin` when `GOBIN` is unset. Rerun
-the same command to update Tractor. Start a new Codex task after installation or
-update so the plugin's MCP server is loaded.
+The script runs `go install github.com/tylergannon/tractor/cmd/tractor@latest`
+and then invokes `tractor plugin install`. The latter refreshes the marketplace,
+replaces the installed plugin and its cache, retires superseded MCP servers that
+declare detached-run support, and removes the obsolete source-building wrapper
+cache. It does not stop detached runs. Start a new Codex task after installation
+or update so the plugin's MCP server is loaded.
 
 ## MCP server
 
@@ -40,7 +41,9 @@ The server uses `github.com/mark3labs/mcp-go`. All tools are deferred, so their 
 
 `validate_pipeline` accepts `pipeline_path` and an optional `workdir`. `start_run` also accepts an optional `logs_root` and `resume`. A new run requires an empty or absent `logs_root`; use `resume: true` to continue from an existing run directory. Later operations use the `run_id` returned by `start_run`.
 
-Runs belong to the MCP stdio session. Closing the session requests a cooperative stop and then force-stops the run process group within a bounded shutdown window. Commands that deliberately detach themselves from Tractor's process groups may outlive that session.
+Each run is a detached Tractor process with atomic state under
+`~/.local/state/tractor/mcp-runs`. It survives MCP and Codex restarts. A later
+MCP session can inspect, steer, or stop it with the original `run_id`.
 
 ## Schema synchronization
 

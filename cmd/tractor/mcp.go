@@ -16,7 +16,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -29,35 +28,14 @@ import (
 	"github.com/tylergannon/tractor/lint"
 )
 
-const tractorMCPVersion = "0.2.1"
+const tractorMCPVersion = "0.2.2"
 
 const (
 	gracefulRunStopTimeout = 500 * time.Millisecond
-	forcedRunStopTimeout   = time.Second
 )
 
 type tractorMCPServer struct {
-	mu   sync.Mutex
-	runs map[string]*managedRun
-}
-
-type managedRun struct {
-	mu sync.Mutex
-
-	id         string
-	pipeline   string
-	workdir    string
-	logsRoot   string
-	stdoutPath string
-	stderrPath string
-	command    *exec.Cmd
-	status     string
-	startedAt  time.Time
-	finishedAt time.Time
-	exitCode   *int
-	failure    string
-	done       chan struct{}
-	stopAt     time.Time
+	runs *mcpRunStore
 }
 
 type emptyInput struct{}
@@ -147,17 +125,28 @@ func newMCPCommand() *cobra.Command {
 }
 
 func runTractorMCP(ctx context.Context) error {
-	mcpServer, state := newTractorMCPServer()
-	listenErr := server.NewStdioServer(mcpServer).Listen(ctx, os.Stdin, os.Stdout)
-	return errors.Join(listenErr, state.shutdownRuns())
+	mcpServer, state, err := newTractorMCPServer()
+	if err != nil {
+		return err
+	}
+	instance, err := registerMCPInstance(state.runs)
+	if err != nil {
+		return err
+	}
+	defer instance.remove()
+	return server.NewStdioServer(mcpServer).Listen(ctx, os.Stdin, os.Stdout)
 }
 
-func newTractorMCPServer() (*server.MCPServer, *tractorMCPServer) {
-	state := &tractorMCPServer{runs: make(map[string]*managedRun)}
+func newTractorMCPServer() (*server.MCPServer, *tractorMCPServer, error) {
+	runs, err := defaultMCPRunStore()
+	if err != nil {
+		return nil, nil, err
+	}
+	state := &tractorMCPServer{runs: runs}
 	mcpServer := server.NewMCPServer(
 		"tractor",
 		tractorMCPVersion,
-		server.WithInstructions("Pipeline definitions are files. Read the current schema only when authoring or changing a pipeline, validate before starting, and use the returned run_id for later operations. Runs belong to this stdio session and are stopped when it closes."),
+		server.WithInstructions("Pipeline definitions are files. Read the current schema only when authoring or changing a pipeline, validate before starting, and use the returned run_id for later operations. Runs are independent processes that survive this stdio session and can be managed after reconnecting."),
 		server.WithToolCapabilities(false),
 		server.WithInputSchemaValidation(),
 		server.WithOutputSchemaValidation(),
@@ -187,7 +176,7 @@ func newTractorMCPServer() (*server.MCPServer, *tractorMCPServer) {
 	), mcp.NewStructuredToolHandler(state.startRun))
 
 	mcpServer.AddTool(mcp.NewTool("get_run_status",
-		mcp.WithDescription("Read process and checkpoint status for a run started by this MCP server."),
+		mcp.WithDescription("Read process and checkpoint status for an MCP-started Tractor run, including after reconnecting."),
 		mcp.WithInputSchema[runIDInput](), mcp.WithOutputSchema[runStatusOutput](),
 		mcp.WithDeferLoading(true), mcp.WithTitleAnnotation("Get Tractor run status"),
 		mcp.WithReadOnlyHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false), mcp.WithOpenWorldHintAnnotation(false),
@@ -201,13 +190,13 @@ func newTractorMCPServer() (*server.MCPServer, *tractorMCPServer) {
 	), mcp.NewStructuredToolHandler(state.steerRun))
 
 	mcpServer.AddTool(mcp.NewTool("stop_run",
-		mcp.WithDescription("Request interruption of a running Tractor process started by this MCP server."),
+		mcp.WithDescription("Request interruption of an MCP-started Tractor run."),
 		mcp.WithInputSchema[runIDInput](), mcp.WithOutputSchema[stopRunOutput](),
 		mcp.WithDeferLoading(true), mcp.WithTitleAnnotation("Stop Tractor run"),
 		mcp.WithDestructiveHintAnnotation(true), mcp.WithOpenWorldHintAnnotation(false),
 	), mcp.NewStructuredToolHandler(state.stopRun))
 
-	return mcpServer, state
+	return mcpServer, state, nil
 }
 
 func (s *tractorMCPServer) validatePipeline(_ context.Context, _ mcp.CallToolRequest, input pipelineInput) (validationOutput, error) {
@@ -268,117 +257,119 @@ func (s *tractorMCPServer) startRun(_ context.Context, _ mcp.CallToolRequest, in
 		_ = stderr.Close()
 		return startRunOutput{}, fmt.Errorf("resolve Tractor executable: %w", err)
 	}
-	args := []string{"run", pipelinePath, "--workdir", workdir, "--logs", logsRoot}
-	if input.Resume {
-		args = append(args, "--resume")
+	startedAt := time.Now().UTC()
+	record := mcpRunRecord{
+		Version: mcpRunStateVersion, ID: runID, Status: "STARTING",
+		Pipeline: pipelinePath, Workdir: workdir, LogsRoot: logsRoot,
+		StdoutPath: stdoutPath, StderrPath: stderrPath, Resume: input.Resume,
+		StartedAt: startedAt,
 	}
+	if err := s.runs.create(record); err != nil {
+		_ = stdout.Close()
+		_ = stderr.Close()
+		return startRunOutput{}, err
+	}
+	args := []string{"mcp-runner", "--state-dir", s.runs.dir, "--run-id", runID}
 	command := exec.Command(executable, args...)
 	command.Dir = workdir
 	command.Stdout = stdout
 	command.Stderr = stderr
-	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	command.Stdin = nil
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := command.Start(); err != nil {
 		_ = stdout.Close()
 		_ = stderr.Close()
+		_, _ = s.runs.update(runID, func(record *mcpRunRecord) error {
+			finishedAt := time.Now().UTC()
+			record.Status = "FAILED"
+			record.FinishedAt = &finishedAt
+			exitCode := -1
+			record.ExitCode = &exitCode
+			record.Failure = err.Error()
+			return nil
+		})
 		return startRunOutput{}, fmt.Errorf("start Tractor run: %w", err)
 	}
-
-	run := &managedRun{
-		id: runID, pipeline: pipelinePath, workdir: workdir, logsRoot: logsRoot,
-		stdoutPath: stdoutPath, stderrPath: stderrPath, command: command,
-		status: "RUNNING", startedAt: time.Now().UTC(), done: make(chan struct{}),
+	go func() { _ = command.Wait() }()
+	_ = stdout.Close()
+	_ = stderr.Close()
+	record, err = s.runs.update(runID, func(record *mcpRunRecord) error {
+		if record.PID != 0 && record.PID != command.Process.Pid {
+			return fmt.Errorf("run %s belongs to process %d", record.ID, record.PID)
+		}
+		record.PID = command.Process.Pid
+		if record.Status == "STARTING" {
+			record.Status = "RUNNING"
+		}
+		return nil
+	})
+	if err != nil {
+		_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+		return startRunOutput{}, fmt.Errorf("record Tractor runner process: %w", err)
 	}
-	s.mu.Lock()
-	s.runs[runID] = run
-	s.mu.Unlock()
-	go waitForRun(run, stdout, stderr)
 
 	return startRunOutput{
-		RunID: runID, PID: command.Process.Pid, Status: "RUNNING",
+		RunID: runID, PID: record.PID, Status: record.Status,
 		Pipeline: pipelinePath, Workdir: workdir, LogsRoot: logsRoot,
 		Warnings: warnings, StdoutPath: stdoutPath, StderrPath: stderrPath,
 	}, nil
 }
 
-func waitForRun(run *managedRun, stdout, stderr *os.File) {
-	err := run.command.Wait()
-	_ = stdout.Close()
-	_ = stderr.Close()
-
-	run.mu.Lock()
-	defer run.mu.Unlock()
-	exitCode := run.command.ProcessState.ExitCode()
-	run.exitCode = &exitCode
-	run.finishedAt = time.Now().UTC()
-	if run.status == "STOPPING" {
-		run.status = "STOPPED"
-	} else if err != nil {
-		run.status = "FAILED"
-	} else {
-		run.status = "COMPLETED"
-	}
-	if err != nil {
-		run.failure = err.Error()
-	}
-	close(run.done)
-}
-
 func (s *tractorMCPServer) getRunStatus(_ context.Context, _ mcp.CallToolRequest, input runIDInput) (runStatusOutput, error) {
-	run, err := s.lookupRun(input.RunID)
+	record, err := s.runs.load(input.RunID)
 	if err != nil {
 		return runStatusOutput{}, err
 	}
-	return snapshotRun(run), nil
+	record, err = s.runs.refresh(record)
+	if err != nil {
+		return runStatusOutput{}, err
+	}
+	return snapshotRun(record), nil
 }
 
-func snapshotRun(run *managedRun) runStatusOutput {
-	run.mu.Lock()
+func snapshotRun(run mcpRunRecord) runStatusOutput {
 	result := runStatusOutput{
-		RunID: run.id, PID: run.command.Process.Pid, Status: run.status,
-		Pipeline: run.pipeline, Workdir: run.workdir, LogsRoot: run.logsRoot,
-		StartedAt: run.startedAt.Format(time.RFC3339Nano), ExitCode: run.exitCode,
-		Failure: run.failure,
+		RunID: run.ID, PID: run.PID, Status: run.Status,
+		Pipeline: run.Pipeline, Workdir: run.Workdir, LogsRoot: run.LogsRoot,
+		StartedAt: run.StartedAt.Format(time.RFC3339Nano), ExitCode: run.ExitCode,
+		Failure: run.Failure,
 	}
-	if !run.finishedAt.IsZero() {
-		result.FinishedAt = run.finishedAt.Format(time.RFC3339Nano)
+	if run.FinishedAt != nil {
+		result.FinishedAt = run.FinishedAt.Format(time.RFC3339Nano)
 	}
-	stderrPath := run.stderrPath
-	logsRoot := run.logsRoot
-	run.mu.Unlock()
 
-	if _, err := os.Stat(filepath.Join(logsRoot, "checkpoint.json")); err == nil {
-		if checkpoint, err := engine.LoadCheckpoint(logsRoot); err == nil {
+	if _, err := os.Stat(filepath.Join(run.LogsRoot, "checkpoint.json")); err == nil {
+		if checkpoint, err := engine.LoadCheckpoint(run.LogsRoot); err == nil {
 			result.CurrentNode = checkpoint.CurrentNode
 			result.NextNode = checkpoint.NextNode
 			result.LastStage = checkpoint.LastStage
 			result.LastResponse = checkpoint.LastResponse
 		}
 	}
-	result.StderrTail = readTail(stderrPath, 4096)
+	result.StderrTail = readTail(run.StderrPath, 4096)
 	return result
 }
 
 func (s *tractorMCPServer) steerRun(ctx context.Context, _ mcp.CallToolRequest, input steerRunInput) (steerRunOutput, error) {
-	run, err := s.lookupRun(input.RunID)
+	run, err := s.runs.load(input.RunID)
 	if err != nil {
 		return steerRunOutput{}, err
 	}
 	if strings.TrimSpace(input.Text) == "" {
 		return steerRunOutput{}, errors.New("steering text must not be empty")
 	}
-	run.mu.Lock()
-	if run.status != "RUNNING" {
-		status := run.status
-		run.mu.Unlock()
+	run, err = s.runs.refresh(run)
+	if err != nil {
+		return steerRunOutput{}, err
+	}
+	if run.Status != "RUNNING" {
 		return steerRunOutput{
 			Accepted: false, HTTPStatus: http.StatusConflict,
-			Message: "run is " + status + "; there is no active steerable turn",
+			Message: "run is " + run.Status + "; there is no active steerable turn",
 		}, nil
 	}
-	logsRoot := run.logsRoot
-	run.mu.Unlock()
 
-	controlSocket, err := engine.LoadControlSocket(logsRoot)
+	controlSocket, err := engine.LoadControlSocket(run.LogsRoot)
 	if err != nil {
 		return steerRunOutput{}, err
 	}
@@ -412,101 +403,95 @@ func (s *tractorMCPServer) steerRun(ctx context.Context, _ mcp.CallToolRequest, 
 }
 
 func (s *tractorMCPServer) stopRun(_ context.Context, _ mcp.CallToolRequest, input runIDInput) (stopRunOutput, error) {
-	run, err := s.lookupRun(input.RunID)
+	run, err := s.runs.load(input.RunID)
 	if err != nil {
 		return stopRunOutput{}, err
 	}
-	status, err := requestRunStop(run)
+	status, err := requestRunStop(s.runs, run)
 	if err != nil {
 		return stopRunOutput{}, err
 	}
-	return stopRunOutput{RunID: run.id, Status: status}, nil
+	return stopRunOutput{RunID: run.ID, Status: status}, nil
 }
 
-func requestRunStop(run *managedRun) (string, error) {
-	run.mu.Lock()
-	switch run.status {
+func requestRunStop(store *mcpRunStore, run mcpRunRecord) (string, error) {
+	var err error
+	run, err = store.refresh(run)
+	if err != nil {
+		return "", err
+	}
+	switch run.Status {
 	case "STOPPING":
-		stopAt := run.stopAt
-		run.mu.Unlock()
-		remaining := time.Until(stopAt.Add(gracefulRunStopTimeout))
-		if remaining > 0 && waitForRunDone(run, remaining) {
-			return currentRunStatus(run), nil
+		if run.StopAt != nil {
+			remaining := time.Until(run.StopAt.Add(gracefulRunStopTimeout))
+			if remaining > 0 {
+				time.Sleep(remaining)
+			}
 		}
-		if waitForRunDone(run, 0) {
-			return currentRunStatus(run), nil
+		run, err = store.refresh(run)
+		if err != nil || run.Status != "STOPPING" {
+			return run.Status, err
 		}
 		if err := forceRunStop(run); err != nil {
 			return "", err
 		}
-		if !waitForRunDone(run, forcedRunStopTimeout) {
-			return "", errors.New("timed out waiting for Tractor run to stop")
-		}
-		return currentRunStatus(run), nil
-	case "RUNNING":
+		finishedAt := time.Now().UTC()
+		exitCode := -1
+		run, err = store.update(run.ID, func(current *mcpRunRecord) error {
+			if current.Status == "STOPPING" {
+				current.Status = "STOPPED"
+				current.FinishedAt = &finishedAt
+				current.ExitCode = &exitCode
+			}
+			return nil
+		})
+		return run.Status, err
+	case "STARTING", "RUNNING":
 	case "COMPLETED", "FAILED", "STOPPED":
-		status := run.status
-		run.mu.Unlock()
-		return status, nil
+		return run.Status, nil
 	default:
-		status := run.status
-		run.mu.Unlock()
-		return "", fmt.Errorf("run has unknown status %q", status)
+		return "", fmt.Errorf("run has unknown status %q", run.Status)
 	}
-	if err := run.command.Process.Signal(os.Interrupt); err != nil {
-		done := run.done
-		run.mu.Unlock()
-		if !errors.Is(err, os.ErrProcessDone) {
-			return "", fmt.Errorf("interrupt Tractor run: %w", err)
-		}
-		select {
-		case <-done:
-		case <-time.After(time.Second):
-		}
-		run.mu.Lock()
-		status := run.status
-		run.mu.Unlock()
-		return status, nil
+	if err := processOwnsRun(run.PID, run.ID); err != nil {
+		return "", err
 	}
-	run.status = "STOPPING"
-	run.stopAt = time.Now()
-	run.mu.Unlock()
+	stopAt := time.Now().UTC()
+	shouldSignal := false
+	run, err = store.update(run.ID, func(current *mcpRunRecord) error {
+		if current.Status == "STARTING" || current.Status == "RUNNING" {
+			current.Status = "STOPPING"
+			current.StopAt = &stopAt
+			shouldSignal = true
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if !shouldSignal {
+		return run.Status, nil
+	}
+	if err := syscall.Kill(-run.PID, syscall.SIGINT); err != nil {
+		return "", fmt.Errorf("interrupt Tractor run %s: %w", run.ID, err)
+	}
 	return "STOPPING", nil
 }
 
-func currentRunStatus(run *managedRun) string {
-	run.mu.Lock()
-	defer run.mu.Unlock()
-	return run.status
-}
-
-func waitForRunDone(run *managedRun, timeout time.Duration) bool {
-	if timeout <= 0 {
-		select {
-		case <-run.done:
-			return true
-		default:
-			return false
-		}
-	}
-	select {
-	case <-run.done:
-		return true
-	case <-time.After(timeout):
-		return false
-	}
-}
-
-func forceRunStop(run *managedRun) error {
-	pid := run.command.Process.Pid
-	if err := run.command.Process.Signal(syscall.SIGSTOP); err != nil {
-		if errors.Is(err, os.ErrProcessDone) {
+func forceRunStop(run mcpRunRecord) error {
+	if err := processOwnsRun(run.PID, run.ID); err != nil {
+		if !isProcessAlive(run.PID) {
 			return nil
 		}
-		return fmt.Errorf("freeze Tractor run %s before forced stop: %w", run.id, err)
+		return err
 	}
-	if err := killProcessGroup(pid); err != nil {
-		return fmt.Errorf("kill Tractor run %s process group: %w", run.id, err)
+	if err := syscall.Kill(run.PID, syscall.SIGSTOP); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return nil
+		}
+		return fmt.Errorf("freeze Tractor run %s before forced stop: %w", run.ID, err)
+	}
+	if err := killProcessGroup(run.PID); err != nil {
+		return fmt.Errorf("kill Tractor run %s process group: %w", run.ID, err)
 	}
 	return nil
 }
@@ -517,74 +502,6 @@ func killProcessGroup(processGroup int) error {
 		return nil
 	}
 	return err
-}
-
-func (s *tractorMCPServer) shutdownRuns() error {
-	s.mu.Lock()
-	runs := make([]*managedRun, 0, len(s.runs))
-	for _, run := range s.runs {
-		runs = append(runs, run)
-	}
-	s.mu.Unlock()
-
-	var shutdownErrs []error
-	for _, run := range runs {
-		run.mu.Lock()
-		if run.status != "RUNNING" {
-			run.mu.Unlock()
-			continue
-		}
-		err := run.command.Process.Signal(os.Interrupt)
-		if err == nil {
-			run.status = "STOPPING"
-			run.stopAt = time.Now()
-		}
-		run.mu.Unlock()
-		if err != nil && !errors.Is(err, os.ErrProcessDone) {
-			shutdownErrs = append(shutdownErrs, err)
-		}
-	}
-	if waitForAllRuns(runs, gracefulRunStopTimeout) {
-		return errors.Join(shutdownErrs...)
-	}
-	for _, run := range runs {
-		if waitForRunDone(run, 0) {
-			continue
-		}
-		if err := forceRunStop(run); err != nil {
-			shutdownErrs = append(shutdownErrs, err)
-		}
-	}
-	if !waitForAllRuns(runs, forcedRunStopTimeout) {
-		shutdownErrs = append(shutdownErrs, errors.New("timed out waiting for Tractor runs to stop"))
-	}
-	return errors.Join(shutdownErrs...)
-}
-
-func waitForAllRuns(runs []*managedRun, timeout time.Duration) bool {
-	allDone := make(chan struct{})
-	go func() {
-		for _, run := range runs {
-			<-run.done
-		}
-		close(allDone)
-	}()
-	select {
-	case <-allDone:
-		return true
-	case <-time.After(timeout):
-		return false
-	}
-}
-
-func (s *tractorMCPServer) lookupRun(runID string) (*managedRun, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	run := s.runs[runID]
-	if run == nil {
-		return nil, fmt.Errorf("unknown run ID %q", runID)
-	}
-	return run, nil
 }
 
 func loadAndValidatePipeline(path, workdir string) (string, []string, error) {
