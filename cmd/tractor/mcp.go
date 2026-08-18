@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -498,14 +499,82 @@ func waitForRunDone(run *managedRun, timeout time.Duration) bool {
 }
 
 func forceRunStop(run *managedRun) error {
-	err := syscall.Kill(-run.command.Process.Pid, syscall.SIGKILL)
+	pid := run.command.Process.Pid
+	descendantGroups, scanErr := descendantProcessGroups(pid)
+	var stopErrs []error
+	if scanErr != nil {
+		stopErrs = append(stopErrs, scanErr)
+	}
+	leaderErr := run.command.Process.Kill()
+	if leaderErr != nil && !errors.Is(leaderErr, os.ErrProcessDone) {
+		stopErrs = append(stopErrs, fmt.Errorf("kill Tractor run %s: %w", run.id, leaderErr))
+	}
+	if leaderErr == nil {
+		if err := killProcessGroup(pid); err != nil {
+			stopErrs = append(stopErrs, fmt.Errorf("kill Tractor run %s process group: %w", run.id, err))
+		}
+	}
+	for _, processGroup := range descendantGroups {
+		if err := killProcessGroup(processGroup); err != nil {
+			stopErrs = append(stopErrs, fmt.Errorf("kill Tractor run %s descendant process group %d: %w", run.id, processGroup, err))
+		}
+	}
+	return errors.Join(stopErrs...)
+}
+
+func killProcessGroup(processGroup int) error {
+	err := syscall.Kill(-processGroup, syscall.SIGKILL)
 	if errors.Is(err, syscall.ESRCH) {
 		return nil
 	}
+	return err
+}
+
+func descendantProcessGroups(rootPID int) ([]int, error) {
+	output, err := exec.Command("ps", "-Ao", "pid=,ppid=,pgid=").Output()
 	if err != nil {
-		return fmt.Errorf("kill Tractor run %s process group: %w", run.id, err)
+		return nil, fmt.Errorf("inspect Tractor run %d process tree: %w", rootPID, err)
 	}
-	return nil
+	type process struct {
+		pid  int
+		ppid int
+		pgid int
+	}
+	processes := make([]process, 0)
+	for line := range strings.SplitSeq(string(output), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) != 3 {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		ppid, ppidErr := strconv.Atoi(fields[1])
+		pgid, pgidErr := strconv.Atoi(fields[2])
+		if pidErr != nil || ppidErr != nil || pgidErr != nil {
+			continue
+		}
+		processes = append(processes, process{pid: pid, ppid: ppid, pgid: pgid})
+	}
+	descendants := map[int]bool{rootPID: true}
+	for changed := true; changed; {
+		changed = false
+		for _, candidate := range processes {
+			if !descendants[candidate.pid] && descendants[candidate.ppid] {
+				descendants[candidate.pid] = true
+				changed = true
+			}
+		}
+	}
+	groups := make(map[int]bool)
+	for _, candidate := range processes {
+		if descendants[candidate.pid] && candidate.pid != rootPID && candidate.pgid > 1 && candidate.pgid != rootPID {
+			groups[candidate.pgid] = true
+		}
+	}
+	result := make([]int, 0, len(groups))
+	for processGroup := range groups {
+		result = append(result, processGroup)
+	}
+	return result, nil
 }
 
 func (s *tractorMCPServer) shutdownRuns() error {

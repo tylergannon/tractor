@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -278,6 +280,7 @@ func TestSteerRunForwardsAcceptedInstruction(t *testing.T) {
 }
 
 func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
+	detachedPIDPath := filepath.Join(t.TempDir(), "detached.pid")
 	stdout, err := os.CreateTemp(t.TempDir(), "stdout-")
 	if err != nil {
 		t.Fatal(err)
@@ -286,7 +289,11 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("/bin/sh", "-c", "trap '' INT TERM; sleep 30 & wait")
+	command := exec.Command("/bin/sh", "-c", "trap '' INT TERM; \"$TRACTOR_TEST_BINARY\" -test.run=TestMCPDetachedProcessHelper & wait")
+	command.Env = append(os.Environ(),
+		"TRACTOR_TEST_BINARY="+os.Args[0],
+		"TRACTOR_DETACHED_PID_PATH="+detachedPIDPath,
+	)
 	command.Stdout = stdout
 	command.Stderr = stderr
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -299,6 +306,15 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 		startedAt: time.Now(), done: make(chan struct{}),
 	}
 	go waitForRun(run, stdout, stderr)
+	waitForFile(t, detachedPIDPath)
+	detachedPIDBytes, err := os.ReadFile(detachedPIDPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	detachedPID, err := strconv.Atoi(strings.TrimSpace(string(detachedPIDBytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if status, err := requestRunStop(run); err != nil || status != "STOPPING" {
 		t.Fatalf("first stop = %q, %v", status, err)
@@ -313,6 +329,24 @@ func TestRepeatedStopForceKillsRunProcessGroup(t *testing.T) {
 	if err := syscall.Kill(-command.Process.Pid, syscall.Signal(0)); !errors.Is(err, syscall.ESRCH) {
 		t.Fatalf("process group still exists: %v", err)
 	}
+	if processExists(detachedPID) {
+		t.Fatalf("detached descendant process %d still exists", detachedPID)
+	}
+}
+
+func TestMCPDetachedProcessHelper(t *testing.T) {
+	pidPath := os.Getenv("TRACTOR_DETACHED_PID_PATH")
+	if pidPath == "" {
+		return
+	}
+	if err := syscall.Setpgid(0, 0); err != nil {
+		t.Fatal(err)
+	}
+	signal.Ignore(os.Interrupt, syscall.SIGTERM)
+	if err := os.WriteFile(pidPath, []byte(strconv.Itoa(os.Getpid())), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	select {}
 }
 
 func startMCPRun(t *testing.T, ctx context.Context, session *client.Client, pipeline string) startRunOutput {

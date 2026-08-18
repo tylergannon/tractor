@@ -1,0 +1,8 @@
+{
+  "id": "894d26c4123b235e2dd9cb5e0392b2ac",
+  "name": "mcp-live-proof",
+  "goal": "",
+  "workdir": "/Users/tyler/src/.worktrees/tractor/mcp-plugin/ephemeral/projects/tractor/mcp-plugin/live-workspace",
+  "started_at": "2026-08-18T00:26:29.854393Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-1287535764/control.sock"
+}

@@ -2,10 +2,7 @@
 set -eu
 
 plugin_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-plugin_key=$(printf '%s' "$plugin_root" | cksum)
-plugin_key=${plugin_key%% *}
-cache_root=${XDG_CACHE_HOME:-"$HOME/.cache"}/tractor/codex-plugin/$plugin_key
-binary=$cache_root/tractor
+cache_root=${XDG_CACHE_HOME:-"$HOME/.cache"}/tractor/codex-plugin
 candidate=$cache_root/tractor.$$
 
 mkdir -p "$cache_root"
@@ -13,6 +10,13 @@ trap 'rm -f "$candidate"' EXIT HUP INT TERM
 
 cd "$plugin_root"
 go build -o "$candidate" ./cmd/tractor
+if command -v sha256sum >/dev/null 2>&1; then
+	binary_hash=$(sha256sum "$candidate")
+else
+	binary_hash=$(shasum -a 256 "$candidate")
+fi
+binary_hash=${binary_hash%% *}
+binary=$cache_root/tractor-$binary_hash
 mv -f "$candidate" "$binary"
 trap - EXIT HUP INT TERM
 

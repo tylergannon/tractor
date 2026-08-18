@@ -4,28 +4,21 @@ Date: 2026-08-17
 
 Codex version: `codex-cli 0.147.0`
 
-Codex task: `01a0122e-da9c-7160-b9ad-aac648b05343`
+Codex task: `01a01242-fcd5-7f90-8751-6579375ae833`
 
 Installed plugin: `tractor@personal`, version
-`0.1.0+codex.20260818000356`, enabled, with cached package at
-`/Users/tyler/.codex/plugins/cache/personal/tractor/0.1.0+codex.20260818000356`.
+`0.1.0+codex.20260818002540`, enabled, with cached package at
+`/Users/tyler/.codex/plugins/cache/personal/tractor/0.1.0+codex.20260818002540`.
 
 ## Command
 
 ```sh
-codex exec --ephemeral --json -s danger-full-access \
-  -C /Users/tyler/src/.worktrees/tractor/mcp-plugin \
-  "Use only the installed Tractor MCP tools for Tractor operations ..."
+codex exec --ephemeral --json \
+  "Use the installed Tractor MCP server only; do not use shell or Go tools. ..."
 ```
 
 The task was explicitly prohibited from launching Tractor or Go through the
-shell. Its event stream said, before the first call:
-
-```text
-The Tractor tools were deferred and are now loaded.
-```
-
-It then emitted actual `mcp_tool_call` events with server `tractor` for
+shell. It emitted actual `mcp_tool_call` events with server `tractor` for
 `validate_pipeline`, `start_run`, and `get_run_status`.
 
 ## Observed MCP results
@@ -40,10 +33,10 @@ It then emitted actual `mcp_tool_call` events with server `tractor` for
 
 ```json
 {
-  "run_id": "c4f5ce11f22c231acf8bf2fee011458b",
-  "pid": 52657,
+  "run_id": "20f379f193634645b3011b1373eeb549",
+  "pid": 67704,
   "status": "RUNNING",
-  "logs_root": "/Users/tyler/src/.worktrees/tractor/mcp-plugin/ephemeral/projects/tractor/mcp-plugin/codex-cli-live-run-v2"
+  "logs_root": "/Users/tyler/src/.worktrees/tractor/mcp-plugin/ephemeral/projects/tractor/mcp-plugin/live-workspace/.tractor/runs/20f379f193634645b3011b1373eeb549"
 }
 ```
 
@@ -51,8 +44,8 @@ It then emitted actual `mcp_tool_call` events with server `tractor` for
 
 ```json
 {
-  "run_id": "c4f5ce11f22c231acf8bf2fee011458b",
-  "pid": 52657,
+  "run_id": "20f379f193634645b3011b1373eeb549",
+  "pid": 67704,
   "status": "COMPLETED",
   "exit_code": 0,
   "current_node": "done",
@@ -65,21 +58,18 @@ The task's final result was:
 
 ```json
 {
-  "loading_deferred": true,
-  "validation_result": {
-    "valid": true,
-    "warnings": []
-  },
-  "run_id": "c4f5ce11f22c231acf8bf2fee011458b",
-  "final_status": "COMPLETED",
+  "valid": true,
+  "run_id": "20f379f193634645b3011b1373eeb549",
+  "pid": 67704,
+  "status": "COMPLETED",
   "exit_code": 0,
   "current_node": "done",
-  "logs_root": "/Users/tyler/src/.worktrees/tractor/mcp-plugin/ephemeral/projects/tractor/mcp-plugin/codex-cli-live-run-v2"
+  "next_node": null
 }
 ```
 
 The resulting checkpoint exists and has SHA-256
-`45c15e143c96fac3308c83ee00f40f230b8b0a8d001e22777f18e0f1ef022c57`.
+`ac1b8ceb156357bc6d89451a71921ab82a242cb21942fac0393f06144b217b95`.
 It records `current_node: "done"`, an empty `next_node`, and one visit and
 attempt for `start`.
 
