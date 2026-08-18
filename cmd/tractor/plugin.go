@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -36,6 +37,12 @@ type codexPluginListing struct {
 	Installed []struct {
 		PluginID string `json:"pluginId"`
 	} `json:"installed"`
+}
+
+type processSnapshot struct {
+	PID     int
+	PPID    int
+	Command string
 }
 
 func newPluginCommand() *cobra.Command {
@@ -116,7 +123,12 @@ func (i pluginInstaller) install() error {
 		return err
 	}
 
+	registeredPIDs := registeredMCPPIDs()
 	retired, err := retireDetachedMCPServers()
+	if err != nil {
+		return err
+	}
+	legacyRetired, legacyPreserved, err := retireLegacyMCPServers(registeredPIDs)
 	if err != nil {
 		return err
 	}
@@ -128,9 +140,99 @@ func (i pluginInstaller) install() error {
 	if err := os.RemoveAll(legacyCache); err != nil {
 		return fmt.Errorf("remove legacy Tractor plugin cache %q: %w", legacyCache, err)
 	}
-	i.output("installed %s; retired %d superseded MCP server(s); preserved detached runs\n", tractorPluginSelector, retired)
+	i.output("installed %s; retired %d superseded and %d idle legacy MCP server(s); preserved detached runs and %d legacy run owner(s)\n",
+		tractorPluginSelector, retired, legacyRetired, legacyPreserved)
 	i.output("start a new Codex task to use Tractor %s\n", tractorMCPVersion)
 	return nil
+}
+
+func registeredMCPPIDs() map[int]bool {
+	registered := make(map[int]bool)
+	store, err := defaultMCPRunStore()
+	if err != nil {
+		return registered
+	}
+	entries, err := os.ReadDir(filepath.Join(filepath.Dir(store.dir), "mcp-instances"))
+	if err != nil {
+		return registered
+	}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name())))
+		if err == nil && pid > 0 {
+			registered[pid] = true
+		}
+	}
+	return registered
+}
+
+func retireLegacyMCPServers(registered map[int]bool) (int, int, error) {
+	output, err := exec.Command("ps", "-axo", "pid=,ppid=,command=").Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("list processes for legacy MCP cleanup: %w", err)
+	}
+	processes := parseProcessSnapshot(string(output))
+	return retireLegacyMCPProcesses(processes, registered, func(pid int) error {
+		return syscall.Kill(pid, syscall.SIGKILL)
+	})
+}
+
+func parseProcessSnapshot(output string) []processSnapshot {
+	var processes []processSnapshot
+	for line := range strings.SplitSeq(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		pid, pidErr := strconv.Atoi(fields[0])
+		ppid, ppidErr := strconv.Atoi(fields[1])
+		if pidErr != nil || ppidErr != nil {
+			continue
+		}
+		commandStart := strings.Index(line, fields[2])
+		if commandStart < 0 {
+			continue
+		}
+		processes = append(processes, processSnapshot{PID: pid, PPID: ppid, Command: strings.TrimSpace(line[commandStart:])})
+	}
+	return processes
+}
+
+func retireLegacyMCPProcesses(processes []processSnapshot, registered map[int]bool, kill func(int) error) (int, int, error) {
+	children := make(map[int][]int)
+	for _, process := range processes {
+		children[process.PPID] = append(children[process.PPID], process.PID)
+	}
+	retired := 0
+	preserved := 0
+	var retireErrors []error
+	for _, process := range processes {
+		if registered[process.PID] || !isTractorMCPCommand(process.Command) {
+			continue
+		}
+		if hasProcessDescendants(process.PID, children) {
+			preserved++
+			continue
+		}
+		if err := kill(process.PID); err != nil && !errors.Is(err, syscall.ESRCH) {
+			retireErrors = append(retireErrors, fmt.Errorf("retire idle legacy MCP server %d: %w", process.PID, err))
+			continue
+		}
+		retired++
+	}
+	return retired, preserved, errors.Join(retireErrors...)
+}
+
+func isTractorMCPCommand(command string) bool {
+	fields := strings.Fields(command)
+	if len(fields) != 2 || fields[1] != "mcp" {
+		return false
+	}
+	executable := filepath.Base(fields[0])
+	return executable == "tractor" || strings.HasPrefix(executable, "tractor-")
+}
+
+func hasProcessDescendants(pid int, children map[int][]int) bool {
+	return len(children[pid]) > 0
 }
 
 func retireDetachedMCPServers() (int, error) {

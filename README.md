@@ -53,9 +53,9 @@ form, that directory must already be on `PATH`. `tractor plugin install`
 refreshes the marketplace, removes the old plugin and its Codex cache, installs
 the current plugin, retires MCP servers registered by versions with
 detached-run support, and removes the obsolete source-building wrapper cache.
-It never stops detached Tractor runs. MCP servers from older versions that
-cannot make that safety guarantee are left to exit with their existing Codex
-tasks.
+It never stops detached Tractor runs. Idle MCP servers from older versions are
+stopped by PID only; a legacy MCP server with a child run is preserved so that
+run keeps both its process and its existing control owner.
 
 The Go binary directory must be on the `PATH` inherited by Codex. Start a new
 Codex task after installation or update so the plugin launches the installed
