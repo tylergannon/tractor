@@ -33,41 +33,33 @@ fan-out/fan-in, YAML input, and live supervision are in
 
 ## Codex plugin and MCP server
 
-This repository is also a Codex plugin. Its `.mcp.json` launches the stdio
-server through:
+This repository is also a Codex plugin. Install or update the Tractor binary
+with Go, then install the plugin from the repository marketplace:
 
 ```sh
-./scripts/tractor-mcp
-```
-
-Install it from the repository marketplace:
-
-```sh
+go install github.com/tylergannon/tractor/cmd/tractor@latest
 codex plugin marketplace add tylergannon/tractor
 codex plugin add tractor@tractor
 ```
 
-Start a new Codex task after installation. See [`llms.txt`](llms.txt) for the
-agent-oriented installation and MCP usage reference.
-
-The source-distributed plugin therefore requires Go 1.26 or newer. The first
-launch may download modules; subsequent launches reuse Go's build cache. The
-launcher builds the plugin snapshot into an immutable, build-ID-addressed cache
-entry and then replaces itself with `tractor mcp`, so MCP stdin and host signals
-reach the server directly. Building from the snapshot is intentional: the MCP
-server and graph language are always compiled from the same revision.
+`go install` writes to `GOBIN`, or to `GOPATH/bin` when `GOBIN` is unset. That
+directory must be on the `PATH` inherited by Codex. Rerun the same `go install`
+command to update Tractor. Start a new Codex task after installation or update
+so the plugin launches the installed binary with `tractor mcp`. See
+[`llms.txt`](llms.txt) for the agent-oriented installation and MCP usage
+reference.
 
 The server exposes deferred tools to validate, start, monitor, steer, and stop
 pipeline runs. Their input schemas contain only operational arguments such as
 pipeline and workspace paths; they do not embed Tractor's graph language.
 `get_pipeline_schema` returns `graph.Graph{}.Schema()` only when called, while
 validation and execution use Tractor's existing parser and runtime validator.
-Consequently the MCP surface and graph language are built from the same source
-revision and cannot acquire a separately maintained schema.
+Consequently the MCP surface and graph language are compiled into the same
+Tractor binary and cannot acquire a separately maintained schema.
 
-Run the server directly with `tractor mcp` when Tractor is installed as a
-binary. MCP clients should communicate over stdin and stdout; diagnostics and
-run output are written elsewhere so they cannot corrupt the protocol stream.
+Run the server directly with `tractor mcp`. MCP clients should communicate over
+stdin and stdout; diagnostics and run output are written elsewhere so they
+cannot corrupt the protocol stream.
 Runs belong to the stdio server session. When that session closes, the server
 requests a cooperative stop and then force-stops the run's process group within
 its bounded shutdown window. Tool commands receive the cooperative stop through

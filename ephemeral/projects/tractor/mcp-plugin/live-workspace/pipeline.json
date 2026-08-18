@@ -1,14 +1,12 @@
 {
   "name": "mcp-live-proof",
+  "start": "start",
   "nodes": [
     {
       "id": "start",
-      "type": "start",
-      "edges": [{"to": "done"}]
-    },
-    {
-      "id": "done",
-      "type": "exit"
+      "type": "tool",
+      "tool_command": "true",
+      "on_success": "success"
     }
   ]
 }
