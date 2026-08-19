@@ -77,13 +77,13 @@ Node IDs must match `[A-Za-z_][A-Za-z0-9_]*`. `success` and `failure` are reserv
 
 Tractor deliberately has a small, fixed node vocabulary.
 
-| Type              | Use it for                                          | How it routes                                               |
-| ----------------- | --------------------------------------------------- | ----------------------------------------------------------- |
-| `codergen`        | Planning, implementation, review, or any LLM task   | The agent chooses from its `edges`.                         |
-| `tool`            | Tests, builds, scripts, and other mechanical checks | Exit code selects `on_success` or `on_error`.               |
-| `parallel`        | Running independent alternatives concurrently       | `branches` name the branch roots.                           |
-| `parallel.fan_in` | Comparing and consolidating parallel results        | The fan-in agent reads branch evidence and chooses an edge. |
-| `supervisor`      | Periodically observing and coaching active nodes    | It returns `ok` or steers a node; it never joins the walk.  |
+| Type              | Use it for                                          | How it routes                                                     |
+| ----------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
+| `codergen`        | Planning, implementation, review, or any LLM task   | The agent chooses from its `edges`.                               |
+| `tool`            | Tests, builds, scripts, and other mechanical checks | Exit code selects `on_success` or `on_error`.                     |
+| `parallel`        | Running independent alternatives concurrently       | `branches` reference authored roots or declare Codergen branches. |
+| `parallel.fan_in` | Comparing and consolidating parallel results        | The fan-in agent reads branch evidence, artifacts, and routes.    |
+| `supervisor`      | Periodically observing and coaching active nodes    | It returns `ok` or steers a node; it never joins the walk.        |
 
 Use `tool` when a process can decide correctly from an exit code. Use `codergen` when the decision requires judgment. That distinction saves tokens and makes deterministic gates genuinely deterministic.
 
@@ -133,34 +133,52 @@ Keep prompts responsible for the work, not for re-explaining the entire pipeline
 
 ## Fan out, then converge
 
-Parallel branches run in isolated Git worktrees from one frozen parent state. They cannot see each other's partial edits. Every branch must converge on one `parallel.fan_in` node, which receives durable branch evidence and can inspect the worktrees before combining a result.
+Parallel nodes support two branch forms. A string names an authored branch root, preserving the original multi-node branch model. A structured branch declares one synthesized Codergen stage, its required artifacts, and an optional `codergen` override. The synthesized stage inherits the parallel node's prompt, model, provider, reasoning effort, retry, fidelity, thread, timeout, label, visit, and routing fields; only fields present in `codergen` replace those values.
+
+The default `workspace` is `isolated`. Tractor freezes the parent Git repository, creates a separate worktree for each branch, and collects every declared regular file or directory into durable fan-out stage evidence before deleting the branch worktrees. `branches.json` records each declared path, collected path, source path, outcome, stage directory, and run-log segment. The fan-in receives those collected paths directly.
 
 ```yaml
-- id: explore
+- id: compare
   type: parallel
+  workspace: isolated
   max_parallel: 2
-  branches: [minimal_fix, structural_fix]
-
-- id: minimal_fix
-  type: codergen
-  prompt: Produce the smallest safe fix and verify it.
+  prompt: Review the change and write the branch's declared report.
+  llm_provider: openai
+  llm_model: gpt-5.6-sol
+  reasoning_effort: low
   edges:
     - to: choose
-
-- id: structural_fix
-  type: codergen
-  prompt: Produce a root-cause fix and verify it.
-  edges:
-    - to: choose
+  branches:
+    - id: openai_review
+      artifacts: [reports/openai.md]
+      codergen:
+        prompt: Write the OpenAI review to reports/openai.md.
+    - id: claude_review
+      artifacts: [reports/claude.md]
+      codergen:
+        prompt: Write the Claude review to reports/claude.md.
+        llm_provider: anthropic
+        llm_model: claude-sonnet-4-5
+        reasoning_effort: medium
 
 - id: choose
   type: parallel.fan_in
-  prompt: Compare both worktrees, select or synthesize the best result, and verify it here.
+  prompt: Read both collected reports, reconcile their findings, and verify the result here.
   edges:
     - to: success
 ```
 
-Branch node sets must be disjoint until the fan-in, nested parallel nodes are not supported, and a failed fan-out replays as a unit. Use parallelism for genuinely independent alternatives—not merely to make a linear workflow look sophisticated.
+Set `workspace: shared` only when branches intentionally coordinate through one directory. Shared branches do not require a Git repository, and `branches.json` exposes each declared artifact at its live workspace path. Tractor provides no write-conflict protection in this mode, so give concurrent branches distinct outputs unless the agents explicitly coordinate a shared edit.
+
+Legacy string branches remain useful when each alternative needs several authored nodes:
+
+```yaml
+- id: explore
+  type: parallel
+  branches: [minimal_fix, structural_fix]
+```
+
+Every branch form must converge on one `parallel.fan_in`. Legacy branch node sets must be disjoint until that join, nested parallel nodes are not supported, and a failed fan-out replays as a unit. Use parallelism for genuinely independent alternatives—not merely to make a linear workflow look sophisticated.
 
 ## Add live supervision sparingly
 
@@ -197,7 +215,7 @@ Inside Codex, ask Tractor for the current pipeline schema only when authoring or
 3. Use tool nodes for facts a command can decide.
 4. Put branch conditions on the agent that has enough context to choose.
 5. Bound intentional loops with `max_visits`.
-6. Keep parallel branches independent until one fan-in.
+6. Choose isolated or shared branch workspaces deliberately, declare every structured-branch artifact, and converge at one fan-in.
 7. Validate the file before starting the run.
 
 The complete field contract and execution semantics live in the normative [Tractor specification](https://github.com/tylergannon/tractor/blob/main/docs/spec.md). Runnable steering, YAML, parallel, and supervision pipelines live in the repository's [examples](https://github.com/tylergannon/tractor/tree/main/examples).
