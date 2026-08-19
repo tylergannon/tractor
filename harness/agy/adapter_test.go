@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -60,6 +61,24 @@ func TestCreateSessionAndRunTurn(t *testing.T) {
 		t.Fatalf("create args omit --new-project: %#v", invocations[0])
 	}
 	assertFlagValue(t, invocations[1], "--conversation", sessionID)
+}
+
+func TestRunTurnPromptIncludesArtifactMetadataPreamble(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "success", record)
+	defer adapter.Close()
+	if _, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(harness.Event) {}); runErr != nil {
+		t.Fatal(runErr)
+	}
+	invocations := readInvocations(t, record)
+	prompt := flagValue(invocations[0], "-p")
+	if !strings.HasPrefix(prompt, artifactMetadataPromptPreamble) {
+		t.Fatalf("prompt = %q, want it to start with the ArtifactMetadata preamble", prompt)
+	}
+	if !strings.HasSuffix(prompt, "do the task") {
+		t.Fatalf("prompt = %q, want the original task prompt to follow the preamble unchanged", prompt)
+	}
 }
 
 func TestRunTurnReconstructsAndRejectsConversationMismatch(t *testing.T) {
@@ -123,15 +142,51 @@ func TestRunTurnRecoversFromArtifactPathError(t *testing.T) {
 		t.Fatalf("repair user event parts = %#v", repairParts)
 	}
 	repairText := repairParts[0].Text
-	if !strings.Contains(repairText, "shell/terminal tool") {
-		t.Fatalf("repair prompt = %q, want shell/terminal-tool guidance", repairText)
+	if !strings.Contains(repairText, "omit the ArtifactMetadata argument entirely") {
+		t.Fatalf("repair prompt = %q, want ArtifactMetadata-omission guidance, not a push to the shell tool", repairText)
+	}
+	if strings.Contains(repairText, "shell/terminal tool") {
+		t.Fatalf("repair prompt = %q, must not push the model onto a different tool: the fix is retrying the same native write tool without ArtifactMetadata", repairText)
 	}
 	if !strings.Contains(repairText, "is not a valid artifact path") {
 		t.Fatalf("repair prompt = %q, want the original agy error echoed back", repairText)
 	}
-	if invocations := readInvocations(t, record); len(invocations) != 2 {
+	if !strings.Contains(repairText, "do the task") {
+		t.Fatalf("repair prompt = %q, want the original task prompt carried into the fresh conversation", repairText)
+	}
+	invocations := readInvocations(t, record)
+	if len(invocations) != 2 {
 		t.Fatalf("invocations = %d, want 2 (initial plus one repair)", len(invocations))
 	}
+	assertFlagValue(t, invocations[0], "--conversation", "conversation-test")
+	if !slices.Contains(invocations[1], "--new-project") {
+		t.Fatalf("repair invocation args = %#v, want --new-project (a fresh conversation, not a resume of the failed one)", invocations[1])
+	}
+	if slices.Contains(invocations[1], "--conversation") {
+		t.Fatalf("repair invocation args = %#v, must not pass --conversation: resuming the failed conversation risks the sticky-status defect (see the worklog)", invocations[1])
+	}
+}
+
+// TestRunTurnArtifactRepairAdoptsFreshConversationForFutureTurns proves the
+// session-level effect of a successful fresh-conversation repair: later
+// calls against the same external session ID (here, Compact) resume the
+// repaired conversation, not the original one that failed.
+func TestRunTurnArtifactRepairAdoptsFreshConversationForFutureTurns(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "artifact_recover", record)
+	defer adapter.Close()
+	if _, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(harness.Event) {}); runErr != nil {
+		t.Fatal(runErr)
+	}
+	if compactErr := adapter.Compact("conversation-test", workdir); compactErr != nil {
+		t.Fatal(compactErr)
+	}
+	invocations := readInvocations(t, record)
+	if len(invocations) != 3 {
+		t.Fatalf("invocations = %d, want 3 (initial, repair, compact)", len(invocations))
+	}
+	assertFlagValue(t, invocations[2], "--conversation", "conversation-test-repaired")
 }
 
 func TestRunTurnArtifactPathErrorRepairsAtMostOnce(t *testing.T) {
@@ -150,6 +205,7 @@ func TestRunTurnArtifactPathErrorRepairsAtMostOnce(t *testing.T) {
 
 func TestIsArtifactPathError(t *testing.T) {
 	agyMessage := "declaring permissions: cortex tool write_to_file: convert tool call for permissions: model output error: invalid tool call error (invalid_args) /workdir/gemini_proposal.md is not a valid artifact path; artifacts must be in /Users/tyler/.gemini/antigravity-cli/brain/56536675-0470-4bfc-b8ee-a04946debce9/"
+	hookMessage := "tool call denied by pre-tool hook: " + nativeWriteHookMarker + " Native write_to_file, replace_file_content, and multi_replace_file_content are disabled: ..."
 	for _, tc := range []struct {
 		name string
 		err  *harness.Error
@@ -157,6 +213,7 @@ func TestIsArtifactPathError(t *testing.T) {
 	}{
 		{"nil error", nil, false},
 		{"agy artifact-path error", &harness.Error{Category: harness.ErrorTerminal, Message: agyMessage}, true},
+		{"tractor native-write hook denial", &harness.Error{Category: harness.ErrorTerminal, Message: hookMessage}, true},
 		{"unrelated terminal error", &harness.Error{Category: harness.ErrorTerminal, Message: "unknown model x"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -164,6 +221,220 @@ func TestIsArtifactPathError(t *testing.T) {
 				t.Errorf("isArtifactPathError(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestRunTurnRecoversFromNativeWriteHookDenial(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "hook_deny_recover", record)
+	defer adapter.Close()
+	var users []harness.Event
+	result, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(event harness.Event) {
+		if event["type"] == harness.EventUser {
+			users = append(users, event)
+		}
+	})
+	if runErr != nil || result["answer"] != "valid" {
+		t.Fatalf("hook-denial recovery result=%#v err=%v", result, runErr)
+	}
+	if len(users) != 2 {
+		t.Fatalf("user events = %d, want initial plus one repair", len(users))
+	}
+	repairParts, _ := users[1]["parts"].([]harness.ContentPart)
+	repairText := repairParts[0].Text
+	if !strings.Contains(repairText, "omit the ArtifactMetadata argument entirely") {
+		t.Fatalf("repair prompt = %q, want ArtifactMetadata-omission guidance", repairText)
+	}
+	if !strings.Contains(repairText, nativeWriteHookMarker) {
+		t.Fatalf("repair prompt = %q, want the original hook denial echoed back", repairText)
+	}
+	invocations := readInvocations(t, record)
+	if len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want 2 (initial plus one repair)", len(invocations))
+	}
+	if !slices.Contains(invocations[1], "--new-project") || slices.Contains(invocations[1], "--conversation") {
+		t.Fatalf("repair invocation args = %#v, want a fresh conversation (--new-project, no --conversation)", invocations[1])
+	}
+}
+
+func TestRunTurnNativeWriteHookDenialRepairsAtMostOnce(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "hook_deny_persist", record)
+	defer adapter.Close()
+	_, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(harness.Event) {})
+	if runErr == nil || runErr.Category != harness.ErrorTerminal || !strings.Contains(runErr.Message, nativeWriteHookMarker) {
+		t.Fatalf("persistent hook-denial error = %#v", runErr)
+	}
+	if invocations := readInvocations(t, record); len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want exactly 2 (initial plus one bounded repair, no further retries)", len(invocations))
+	}
+}
+
+func TestEnsureNativeWriteHookIdempotentAndContentCorrect(t *testing.T) {
+	home := t.TempDir()
+	if err := ensureNativeWriteHook(home); err != nil {
+		t.Fatal(err)
+	}
+	first, err := os.ReadFile(hooksConfigPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(first, &doc); err != nil {
+		t.Fatalf("hooks.json is not valid JSON: %v", err)
+	}
+	var spec hookSpec
+	if err := json.Unmarshal(doc[tractorHookName], &spec); err != nil {
+		t.Fatalf("tractor hook entry is not valid JSON: %v", err)
+	}
+	if len(spec.PreToolUse) != 1 || spec.PreToolUse[0].Matcher != strings.Join(nativeWriteTools, "|") {
+		t.Fatalf("unexpected PreToolUse group: %#v", spec.PreToolUse)
+	}
+	if len(spec.PreToolUse[0].Hooks) != 1 || spec.PreToolUse[0].Hooks[0].Timeout != 5 {
+		t.Fatalf("unexpected hook handler: %#v", spec.PreToolUse[0].Hooks)
+	}
+	hookCmd := exec.Command("sh", "-c", spec.PreToolUse[0].Hooks[0].Command)
+	hookCmd.Stdin = strings.NewReader(`{"artifactDirectoryPath":"/brain/abc","toolCall":{"name":"write_to_file","args":{"ArtifactMetadata":{},"TargetFile":"/workspace/foo.md"}}}`)
+	out, exitErr := hookCmd.Output()
+	if exitErr != nil {
+		t.Fatalf("hook command failed: %v", exitErr)
+	}
+	var decision struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal(out, &decision); err != nil {
+		t.Fatalf("hook command did not print valid JSON: %v (%q)", err, out)
+	}
+	if decision.Decision != "deny" || !strings.Contains(decision.Reason, nativeWriteHookMarker) {
+		t.Fatalf("hook command output = %#v, want deny for an ArtifactMetadata write outside artifactDirectoryPath", decision)
+	}
+
+	if err := ensureNativeWriteHook(home); err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(hooksConfigPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatalf("ensureNativeWriteHook was not idempotent:\nfirst:  %s\nsecond: %s", first, second)
+	}
+}
+
+func TestEnsureNativeWriteHookMergesWithExistingHooks(t *testing.T) {
+	home := t.TempDir()
+	path := hooksConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	preexisting := `{"user-lint-hook":{"PostToolUse":[{"matcher":"run_command","hooks":[{"command":"./lint.sh"}]}]}}`
+	if err := os.WriteFile(path, []byte(preexisting), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureNativeWriteHook(home); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc["user-lint-hook"]; !ok {
+		t.Fatalf("ensureNativeWriteHook clobbered the user's existing hook: %s", raw)
+	}
+	if _, ok := doc[tractorHookName]; !ok {
+		t.Fatalf("ensureNativeWriteHook did not add its own hook: %s", raw)
+	}
+}
+
+func TestEnsureNativeWriteHookRefusesForeignEntry(t *testing.T) {
+	home := t.TempDir()
+	path := hooksConfigPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := `{"tractor-no-native-write":{"PreToolUse":[{"matcher":"write_to_file","hooks":[{"command":"echo mine"}]}]}}`
+	if err := os.WriteFile(path, []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureNativeWriteHook(home); err == nil {
+		t.Fatal("expected ensureNativeWriteHook to refuse clobbering a non-Tractor-managed entry")
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != foreign {
+		t.Fatalf("ensureNativeWriteHook modified a foreign entry it should have refused: %s", raw)
+	}
+}
+
+func TestEnsureHookFailsFastOnOldAgyVersion(t *testing.T) {
+	home := t.TempDir()
+	environment := append(os.Environ(), "GO_WANT_AGY_HELPER=1", "AGY_HELPER_MODE=success", "AGY_HELPER_VERSION=1.1.14")
+	adapter := newAdapter(runnerConfig{
+		binary:   os.Args[0],
+		baseArgs: []string{"-test.run=TestAgyHelperProcess", "--"},
+		env:      environment,
+		homeDir:  home,
+	})
+	defer adapter.Close()
+	_, createErr := adapter.CreateSession("gemini-test", t.TempDir())
+	if createErr == nil || createErr.Category != harness.ErrorTerminal {
+		t.Fatalf("create error = %#v, want terminal version-gate failure", createErr)
+	}
+	if !strings.Contains(createErr.Message, "1.1.14") || !strings.Contains(createErr.Message, minSupportedAgyVersion) {
+		t.Fatalf("error message = %q, want it to name both the reported and minimum supported versions", createErr.Message)
+	}
+	if _, err := os.Stat(hooksConfigPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("hook should not be provisioned when the agy version check fails: err=%v", err)
+	}
+}
+
+func TestEnsureHookFailsFastOnUnparseableAgyVersion(t *testing.T) {
+	home := t.TempDir()
+	environment := append(os.Environ(), "GO_WANT_AGY_HELPER=1", "AGY_HELPER_MODE=success", "AGY_HELPER_VERSION=unknown-build")
+	adapter := newAdapter(runnerConfig{
+		binary:   os.Args[0],
+		baseArgs: []string{"-test.run=TestAgyHelperProcess", "--"},
+		env:      environment,
+		homeDir:  home,
+	})
+	defer adapter.Close()
+	_, createErr := adapter.CreateSession("gemini-test", t.TempDir())
+	if createErr == nil || createErr.Category != harness.ErrorTerminal || !strings.Contains(createErr.Message, "unknown-build") {
+		t.Fatalf("create error = %#v, want terminal failure naming the unparseable version", createErr)
+	}
+	if _, err := os.Stat(hooksConfigPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("hook should not be provisioned when the agy version can't be parsed: err=%v", err)
+	}
+}
+
+func TestAdapterProvisionsHookBeforeFirstInvocation(t *testing.T) {
+	home := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	environment := append(os.Environ(), "GO_WANT_AGY_HELPER=1", "AGY_HELPER_MODE=success", "AGY_HELPER_RECORD="+record)
+	adapter := newAdapter(runnerConfig{
+		binary:   os.Args[0],
+		baseArgs: []string{"-test.run=TestAgyHelperProcess", "--"},
+		env:      environment,
+		homeDir:  home,
+	})
+	defer adapter.Close()
+	if _, err := os.Stat(hooksConfigPath(home)); !os.IsNotExist(err) {
+		t.Fatalf("hook should not be provisioned before any invocation: err=%v", err)
+	}
+	if _, createErr := adapter.CreateSession("gemini-test", t.TempDir()); createErr != nil {
+		t.Fatal(createErr)
+	}
+	if _, err := os.Stat(hooksConfigPath(home)); err != nil {
+		t.Fatalf("hook was not provisioned under the configured home dir: %v", err)
 	}
 }
 
@@ -326,6 +597,7 @@ func testAdapter(t *testing.T, mode, record string) *Adapter {
 		binary:   os.Args[0],
 		baseArgs: []string{"-test.run=TestAgyHelperProcess", "--"},
 		env:      environment,
+		homeDir:  t.TempDir(), // never touch the real ~/.gemini from tests
 	})
 }
 
@@ -335,6 +607,14 @@ func TestAgyHelperProcess(t *testing.T) {
 	}
 	separator := slices.Index(os.Args, "--")
 	args := os.Args[separator+1:]
+	if len(args) == 1 && args[0] == "--version" {
+		version := os.Getenv("AGY_HELPER_VERSION")
+		if version == "" {
+			version = "1.1.15"
+		}
+		fmt.Println(version)
+		os.Exit(0)
+	}
 	if record := os.Getenv("AGY_HELPER_RECORD"); record != "" {
 		file, err := os.OpenFile(record, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if err != nil {
@@ -343,23 +623,49 @@ func TestAgyHelperProcess(t *testing.T) {
 		_ = json.NewEncoder(file).Encode(args)
 		_ = file.Close()
 	}
-	sessionID := flagValue(args, "--conversation")
-	if sessionID == "" {
-		sessionID = "conversation-test"
-	}
+	prompt := flagValue(args, "-p")
 	mode := os.Getenv("AGY_HELPER_MODE")
+	// A fresh-conversation artifact-path/hook-denial repair never passes
+	// --conversation (RunTurn clears request.sessionID and sets
+	// request.newProject for that one call — see the artifact-path repair
+	// branch); mint a conversation ID distinct from the original so tests
+	// can prove the repair really lands on a new conversation, not a
+	// resume of the one that just failed.
+	repairModes := map[string]bool{"artifact_recover": true, "artifact_persist": true, "hook_deny_recover": true, "hook_deny_persist": true}
+	repaired := slices.Contains(args, "--new-project") && strings.Contains(prompt, "Retry note:")
+	requestedConversation := flagValue(args, "--conversation")
+	sessionID := requestedConversation
+	if sessionID == "" {
+		if repairModes[mode] && repaired {
+			sessionID = "conversation-test-repaired"
+		} else {
+			sessionID = "conversation-test"
+		}
+	}
 	if mode == "internal" {
 		writeJSON(map[string]any{"event": "result", "result": map[string]any{
 			"status": "ERROR", "error": "Eligibility check failed: INTERNAL (code 500): We can't connect to Gemini Code Assist",
 		}})
 		os.Exit(1)
 	}
-	prompt := flagValue(args, "-p")
-	if mode == "artifact_recover" || mode == "artifact_persist" {
-		repaired := strings.Contains(prompt, "shell/terminal tool")
+	// Once a repair has adopted "conversation-test-repaired", any later
+	// call resuming it (e.g. Compact) behaves like an ordinary, unbroken
+	// session: the original ArtifactMetadata/hook problem doesn't recur on
+	// its own, so only the original attempt and (for the "_persist" modes)
+	// the repair attempt itself are forced to fail here.
+	alreadyRepaired := requestedConversation == "conversation-test-repaired"
+	if (mode == "artifact_recover" || mode == "artifact_persist") && !alreadyRepaired {
 		if mode == "artifact_persist" || !repaired {
 			writeJSON(map[string]any{"event": "result", "result": map[string]any{
 				"status": "ERROR", "error": "declaring permissions: cortex tool write_to_file: convert tool call for permissions: model output error: invalid tool call error (invalid_args) /workdir/gemini_proposal.md is not a valid artifact path; artifacts must be in /Users/tyler/.gemini/antigravity-cli/brain/56536675-0470-4bfc-b8ee-a04946debce9/",
+			}})
+			os.Exit(1)
+		}
+	}
+	if (mode == "hook_deny_recover" || mode == "hook_deny_persist") && !alreadyRepaired {
+		if mode == "hook_deny_persist" || !repaired {
+			writeJSON(map[string]any{"event": "result", "result": map[string]any{
+				"status": "ERROR", "error": "tool call denied by pre-tool hook: " + nativeWriteHookMarker + " native write declared as a conversation artifact (an ArtifactMetadata argument) targets a path outside the conversation's private artifact directory: agy fails the whole turn in that combination, even though the physical write already succeeds. Retry the SAME write_to_file/replace_file_content/multi_replace_file_content call, unchanged, but omit the ArtifactMetadata argument entirely — this is an ordinary workspace file, not a conversation artifact.",
 			}})
 			os.Exit(1)
 		}

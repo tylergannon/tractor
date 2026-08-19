@@ -1,0 +1,37 @@
+{
+  "timestamp": "2026-08-19T23:37:38.983634Z",
+  "current_node": "evaluate",
+  "next_node": "success",
+  "completed_nodes": [
+    "implement",
+    "evaluate",
+    "implement",
+    "evaluate",
+    "implement",
+    "evaluate"
+  ],
+  "node_visits": {
+    "evaluate": 3,
+    "implement": 3
+  },
+  "node_attempts": {
+    "evaluate": 3,
+    "implement": 3
+  },
+  "seq": 6,
+  "retry_visit": false,
+  "last_stage": "evaluate",
+  "last_response": "[ephemeral/reviews/202608191735-agy-artifact-prevention-round-03.md](/Users/tyler/src/tractor/.claude/worktrees/jovial-aryabhata-59c086/ephemeral/reviews/202608191735-agy-artifact-prevention-round-03.",
+  "sessions": {
+    "\u0000none:evaluate": {
+      "harness": "codex",
+      "session_id": "01a01c5e-4d0f-7ae0-a82d-9b35e7f4230b",
+      "workdir": "/Users/tyler/src/tractor/.claude/worktrees/jovial-aryabhata-59c086"
+    },
+    "\u0000none:implement": {
+      "harness": "claude",
+      "session_id": "de994818-d766-4ff9-92b6-34eb95503768",
+      "workdir": "/Users/tyler/src/tractor/.claude/worktrees/jovial-aryabhata-59c086"
+    }
+  }
+}

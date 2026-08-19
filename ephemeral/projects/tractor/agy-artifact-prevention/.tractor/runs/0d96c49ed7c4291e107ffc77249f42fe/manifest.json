@@ -1,0 +1,8 @@
+{
+  "id": "3959436ed90d58d48f4dfd75665a6f77",
+  "name": "agy-artifact-prevention",
+  "goal": "Add a prevention layer for the agy artifact-path failure: custom agent manifest with a tools allowlist that omits the native write tools, --agent selection, and init.tools verification, layered on top of the existing repair-retry fix",
+  "workdir": "/Users/tyler/src/tractor/.claude/worktrees/jovial-aryabhata-59c086",
+  "started_at": "2026-08-19T22:13:40.350643Z",
+  "control_socket": "/var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/tractor-control-341648248/control.sock"
+}
