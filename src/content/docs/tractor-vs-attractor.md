@@ -15,18 +15,18 @@ This comparison uses [`strongdm/attractor`](https://github.com/strongdm/attracto
 
 Upstream Attractor is a broad, presentation-neutral NLSpec with a DOT DSL and multiple extension seams. Tractor narrows that surface around typed data, existing coding-agent harnesses, inspectable run evidence, safe parallel Git work, and live steering.
 
-| Concern           | Upstream strongdm/attractor                                                              | Tractor                                                                                  |
-| ----------------- | ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| Pipeline syntax   | A constrained Graphviz DOT language                                                      | Closed typed JSON; YAML decodes through the same schema                                  |
-| Graph model       | Separate nodes and edges; shape can infer handler type                                   | Flat discriminated node union; each node owns its outgoing routes                        |
-| Routing           | Weighted and conditional edges interpreted by an algorithm                               | Agent chooser selects a prose-labelled target; tools route by exit code                  |
-| Built-in nodes    | Start, exit, codergen, wait-for-human, conditional, parallel, fan-in, tool, manager loop | Codergen, tool, parallel, fan-in, and supervisor; terminal states are pseudo-targets     |
-| Extensibility     | Custom handlers, lint rules, AST transforms, stylesheets, hooks                          | Closed graph language; extensions live in authored nodes or build-time code              |
-| LLM layer         | Abstract `CodergenBackend`; implementations may call APIs or agents                      | Harness-backed sessions for Codex, Claude, and Antigravity/Gemini                        |
-| Human interaction | Dedicated interviewer interface and wait-for-human handler                               | An authoring pattern using agent contact, blocking tools, or external steering           |
-| Parallel work     | Concurrent branches with merged context                                                  | Engine-owned isolated Git worktrees plus durable branch evidence and an agent fan-in     |
-| Supervision       | A manager-loop handler inside the walk                                                   | Supervisor nodes patrol declared scopes outside the walk and steer active turns          |
-| Runtime control   | Events, cancellation, optional HTTP server, tool hooks                                   | Events/run logs, Unix control socket, detached MCP runs, steering, and native compaction |
+| Concern           | Upstream strongdm/attractor                                                              | Tractor                                                                                                         |
+| ----------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Pipeline syntax   | A constrained Graphviz DOT language                                                      | Closed typed JSON; YAML decodes through the same schema                                                         |
+| Graph model       | Separate nodes and edges; shape can infer handler type                                   | Flat discriminated node union; each node owns its outgoing routes                                               |
+| Routing           | Weighted and conditional edges interpreted by an algorithm                               | Agent chooser selects a prose-labelled target; tools route by exit code                                         |
+| Built-in nodes    | Start, exit, codergen, wait-for-human, conditional, parallel, fan-in, tool, manager loop | Codergen, tool, parallel, fan-in, and supervisor; terminal states are pseudo-targets                            |
+| Extensibility     | Custom handlers, lint rules, AST transforms, stylesheets, hooks                          | Closed graph language; extensions live in authored nodes or build-time code                                     |
+| LLM layer         | Abstract `CodergenBackend`; implementations may call APIs or agents                      | Harness-backed sessions for Codex, Claude, and Antigravity/Gemini                                               |
+| Human interaction | Dedicated interviewer interface and wait-for-human handler                               | An authoring pattern using agent contact, blocking tools, or external steering                                  |
+| Parallel work     | Concurrent branches with merged context                                                  | Isolated-by-default or shared workspaces, per-branch Codergen settings, declared artifacts, and an agent fan-in |
+| Supervision       | A manager-loop handler inside the walk                                                   | Supervisor nodes patrol declared scopes outside the walk and steer active turns                                 |
+| Runtime control   | Events, cancellation, optional HTTP server, tool hooks                                   | Events/run logs, Unix control socket, detached MCP runs, steering, and native compaction                        |
 
 ## What Tractor preserves
 
@@ -98,17 +98,22 @@ The backend receives resolved turns—not graph objects—and returns semantic o
 
 ## Parallelism is Git-aware
 
-Both specifications fan out work and converge at a fan-in. Tractor adds repository semantics because concurrent coding agents editing one directory is not a useful abstraction.
+Both specifications fan out work and converge at a fan-in. Tractor adds explicit workspace and artifact semantics because concurrent coding agents editing one directory is not always a useful abstraction.
 
-For each branch, Tractor:
+Legacy string branches reference authored branch roots and can walk several nodes before joining. Structured branches instead synthesize one ordinary Codergen node per branch. Each structured branch inherits the parallel node's Codergen configuration, can selectively override fields such as provider or model, and must declare the files or directories it produces.
+
+With the isolated default, Tractor:
 
 - freezes one parent repository state;
 - creates an engine-owned isolated Git worktree;
 - runs the branch with that worktree as its workspace;
-- records its path, outcome, stage directories, and run-log segments in `branches.json`; and
-- keeps every candidate available until the fan-in agent inspects and consolidates them.
+- for structured branches, collects each declared artifact into durable fan-out stage evidence before worktree cleanup;
+- records branch paths, outcomes, stage directories, and run-log segments in `branches.json`, plus workspace and artifact metadata for structured branches; and
+- gives the fan-in agent the resulting branch evidence and collected artifact paths to inspect and consolidate.
 
-Branch node sets must remain disjoint until the join. A failed or interrupted fan-out replays as one unit rather than pretending partially completed branches form a coherent checkpoint.
+An author can explicitly select a shared workspace instead. All branches then run in the caller's directory, declared artifacts remain at their live paths, and Tractor adds no write-conflict protection. Shared mode is for coordinated branches with intentionally distinct or managed outputs, not an accidental escape from isolation.
+
+Legacy branch node sets must remain disjoint until the join. A failed or interrupted fan-out replays as one unit rather than pretending partially completed branches form a coherent checkpoint.
 
 ## Human interaction becomes a pattern
 
