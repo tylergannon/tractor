@@ -101,6 +101,72 @@ func TestRunTurnRepairsAtMostOnce(t *testing.T) {
 	}
 }
 
+func TestRunTurnRecoversFromArtifactPathError(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "artifact_recover", record)
+	defer adapter.Close()
+	var users []harness.Event
+	result, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(event harness.Event) {
+		if event["type"] == harness.EventUser {
+			users = append(users, event)
+		}
+	})
+	if runErr != nil || result["answer"] != "valid" {
+		t.Fatalf("artifact-path recovery result=%#v err=%v", result, runErr)
+	}
+	if len(users) != 2 {
+		t.Fatalf("user events = %d, want initial plus one artifact-path repair", len(users))
+	}
+	repairParts, _ := users[1]["parts"].([]harness.ContentPart)
+	if len(repairParts) != 1 {
+		t.Fatalf("repair user event parts = %#v", repairParts)
+	}
+	repairText := repairParts[0].Text
+	if !strings.Contains(repairText, "shell/terminal tool") {
+		t.Fatalf("repair prompt = %q, want shell/terminal-tool guidance", repairText)
+	}
+	if !strings.Contains(repairText, "is not a valid artifact path") {
+		t.Fatalf("repair prompt = %q, want the original agy error echoed back", repairText)
+	}
+	if invocations := readInvocations(t, record); len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want 2 (initial plus one repair)", len(invocations))
+	}
+}
+
+func TestRunTurnArtifactPathErrorRepairsAtMostOnce(t *testing.T) {
+	workdir := t.TempDir()
+	record := filepath.Join(t.TempDir(), "args.jsonl")
+	adapter := testAdapter(t, "artifact_persist", record)
+	defer adapter.Close()
+	_, runErr := adapter.RunTurn(validInput("conversation-test", workdir, 5*time.Second), func(harness.Event) {})
+	if runErr == nil || runErr.Category != harness.ErrorTerminal || !strings.Contains(runErr.Message, "is not a valid artifact path") {
+		t.Fatalf("persistent artifact-path error = %#v", runErr)
+	}
+	if invocations := readInvocations(t, record); len(invocations) != 2 {
+		t.Fatalf("invocations = %d, want exactly 2 (initial plus one bounded repair, no further retries)", len(invocations))
+	}
+}
+
+func TestIsArtifactPathError(t *testing.T) {
+	agyMessage := "declaring permissions: cortex tool write_to_file: convert tool call for permissions: model output error: invalid tool call error (invalid_args) /workdir/gemini_proposal.md is not a valid artifact path; artifacts must be in /Users/tyler/.gemini/antigravity-cli/brain/56536675-0470-4bfc-b8ee-a04946debce9/"
+	for _, tc := range []struct {
+		name string
+		err  *harness.Error
+		want bool
+	}{
+		{"nil error", nil, false},
+		{"agy artifact-path error", &harness.Error{Category: harness.ErrorTerminal, Message: agyMessage}, true},
+		{"unrelated terminal error", &harness.Error{Category: harness.ErrorTerminal, Message: "unknown model x"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isArtifactPathError(tc.err); got != tc.want {
+				t.Errorf("isArtifactPathError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunTurnTimeoutInterruptsProcess(t *testing.T) {
 	adapter := testAdapter(t, "sleep", "")
 	defer adapter.Close()
@@ -288,6 +354,16 @@ func TestAgyHelperProcess(t *testing.T) {
 		}})
 		os.Exit(1)
 	}
+	prompt := flagValue(args, "-p")
+	if mode == "artifact_recover" || mode == "artifact_persist" {
+		repaired := strings.Contains(prompt, "shell/terminal tool")
+		if mode == "artifact_persist" || !repaired {
+			writeJSON(map[string]any{"event": "result", "result": map[string]any{
+				"status": "ERROR", "error": "declaring permissions: cortex tool write_to_file: convert tool call for permissions: model output error: invalid tool call error (invalid_args) /workdir/gemini_proposal.md is not a valid artifact path; artifacts must be in /Users/tyler/.gemini/antigravity-cli/brain/56536675-0470-4bfc-b8ee-a04946debce9/",
+			}})
+			os.Exit(1)
+		}
+	}
 	if mode == "mismatch" {
 		sessionID = "conversation-other"
 	}
@@ -296,7 +372,6 @@ func TestAgyHelperProcess(t *testing.T) {
 		time.Sleep(30 * time.Second)
 		os.Exit(3)
 	}
-	prompt := flagValue(args, "-p")
 	if mode == "steer" && prompt != "apply the steering message" {
 		time.Sleep(30 * time.Second)
 		os.Exit(3)

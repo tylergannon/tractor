@@ -179,7 +179,21 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	}
 	result, active, runErr := a.runWithSteering(state, request, deadline, input.Timeout)
 	if runErr != nil {
-		return nil, runErr
+		if !isArtifactPathError(runErr) {
+			return nil, runErr
+		}
+		repairPrompt := artifactWriteRepairPrompt(runErr.Message)
+		repairParts := []harness.ContentPart{{Type: harness.ContentPartText, Text: repairPrompt}}
+		projector.user(repairParts)
+		request.prompt = repairPrompt
+		request.timeout = remaining(deadline, input.Timeout)
+		if request.timeout <= 0 && input.Timeout > 0 {
+			return nil, interrupted("turn timed out and was interrupted")
+		}
+		result, active, runErr = a.runWithSteering(state, request, deadline, input.Timeout)
+		if runErr != nil {
+			return nil, runErr
+		}
 	}
 	validated, invalid := validateStructured(validator, result.structured)
 	if mismatch := compareEchoedSchema(input.OutputSchema, result.echoedSchema); mismatch != nil {
@@ -692,6 +706,34 @@ func categorize(err error, wasInterrupted bool) *harness.Error {
 		}
 	}
 	return retryable(message)
+}
+
+// artifactPathErrorMarker matches agy's own error text when the model's
+// file-write tool call is routed through agy's native artifact tool, which
+// only accepts paths inside its private per-conversation "brain" directory
+// and rejects any path inside the workspace agy was given via --add-dir.
+// Tractor cannot suppress or reroute that native tool from the CLI (agy
+// exposes no per-tool allow/deny flag), so a single corrective turn is the
+// only lever available to recover a branch that hits it.
+const artifactPathErrorMarker = "is not a valid artifact path"
+
+// isArtifactPathError reports whether err is agy's "declaring permissions"
+// failure for a file-write tool call targeting a path outside its brain
+// directory. This is agy CLI's own error text (see errorMessage propagated
+// from a non-SUCCESS result envelope through categorize), not a message
+// Tractor constructs.
+func isArtifactPathError(err *harness.Error) bool {
+	return err != nil && strings.Contains(err.Message, artifactPathErrorMarker)
+}
+
+// artifactWriteRepairPrompt asks the model to redo the turn using its
+// shell/terminal tool instead of its native file-write tool, mirroring the
+// bounded, single-shot repair already used for schema-invalid output above.
+func artifactWriteRepairPrompt(message string) string {
+	return fmt.Sprintf(
+		"Your previous turn failed: %s. Your file-write/edit tool only accepts paths inside its own private artifact directory and cannot write into this workspace. Do not call that tool again in this task. Create and edit every file in the workspace exclusively with your shell/terminal tool (for example a heredoc: `cat > <path> <<'EOF' ... EOF`). Retry the original task now, writing all files that way.",
+		message,
+	)
 }
 
 func terminal(message string) *harness.Error {
