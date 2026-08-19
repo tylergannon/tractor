@@ -51,7 +51,7 @@ func TestParseRepresentativeGraphAndResolveDefaults(t *testing.T) {
 		t.Fatalf("tool = %#v", tool)
 	}
 	parallel := mustNode[*ParallelNode](t, pipeline, "parallel")
-	if parallel.MaxParallelValue() != 3 || !reflect.DeepEqual(parallel.Branches, []string{"left", "right"}) {
+	if parallel.MaxParallelValue() != 3 || !reflect.DeepEqual(parallel.BranchIDs(), []string{"left", "right"}) {
 		t.Fatalf("parallel = %#v", parallel)
 	}
 	join := mustNode[*FanInNode](t, pipeline, "join")
@@ -96,6 +96,64 @@ func TestParsePreservesOptionalPresence(t *testing.T) {
 	empty := mustNode[*CodergenNode](t, pipeline, "empty")
 	if !empty.Label.Present || !empty.Prompt.Present || empty.DisplayLabel() != "" {
 		t.Fatalf("empty = %#v", empty)
+	}
+}
+
+func TestParseResolvesStructuredParallelCodergenBranches(t *testing.T) {
+	document := `{
+  "start":"fanout",
+  "nodes":[
+    {
+      "id":"fanout",
+      "type":"parallel",
+      "workspace":"shared",
+      "prompt":"Build the parent artifact",
+      "llm_provider":"openai",
+      "llm_model":"gpt-parent",
+      "reasoning_effort":"high",
+      "timeout":"3m",
+      "edges":[{"to":"join"}],
+      "branches":[
+        {"id":"openai_branch","artifacts":["openai.txt"],"codergen":{"prompt":"Build OpenAI output"}},
+        {"id":"anthropic_branch","artifacts":["anthropic.txt"],"codergen":{"llm_provider":"anthropic","llm_model":"claude-child","reasoning_effort":"medium"}}
+      ]
+    },
+    {"id":"join","type":"parallel.fan_in","edges":[{"to":"success"}]}
+  ]
+}`
+	pipeline, err := Parse([]byte(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parallel := mustNode[*ParallelNode](t, pipeline, "fanout")
+	if parallel.WorkspacePolicyValue() != WorkspaceShared || !reflect.DeepEqual(parallel.BranchIDs(), []string{"openai_branch", "anthropic_branch"}) {
+		t.Fatalf("parallel = %#v", parallel)
+	}
+	openai := mustNode[*CodergenNode](t, pipeline, "openai_branch")
+	if openai.Prompt.Value != "Build OpenAI output" || openai.LLMProvider.Value != "openai" || openai.LLMModel.Value != "gpt-parent" || openai.ReasoningEffort.Value != "high" || openai.Timeout.Value != "3m" {
+		t.Fatalf("inherited branch = %#v", openai)
+	}
+	anthropic := mustNode[*CodergenNode](t, pipeline, "anthropic_branch")
+	if anthropic.Prompt.Value != "Build the parent artifact" || anthropic.LLMProvider.Value != "anthropic" || anthropic.LLMModel.Value != "claude-child" || anthropic.ReasoningEffort.Value != "medium" || !reflect.DeepEqual(anthropic.Edges, []Edge{{To: "join"}}) {
+		t.Fatalf("overridden branch = %#v", anthropic)
+	}
+}
+
+func TestParseRejectsInvalidStructuredParallelBranches(t *testing.T) {
+	tests := map[string]string{
+		"mixed branches":    `{"start":"p","nodes":[{"id":"p","type":"parallel","edges":[{"to":"join"}],"branches":["legacy",{"id":"variant","artifacts":["out.txt"]}]},{"id":"legacy","type":"codergen","edges":[{"to":"join"}]},{"id":"join","type":"parallel.fan_in","edges":[{"to":"success"}]}]}`,
+		"missing artifacts": `{"start":"p","nodes":[{"id":"p","type":"parallel","edges":[{"to":"join"}],"branches":[{"id":"variant"}]},{"id":"join","type":"parallel.fan_in","edges":[{"to":"success"}]}]}`,
+		"empty artifacts":   `{"start":"p","nodes":[{"id":"p","type":"parallel","edges":[{"to":"join"}],"branches":[{"id":"variant","artifacts":[]}]},{"id":"join","type":"parallel.fan_in","edges":[{"to":"success"}]}]}`,
+		"unsafe artifact":   `{"start":"p","nodes":[{"id":"p","type":"parallel","edges":[{"to":"join"}],"branches":[{"id":"variant","artifacts":["../out.txt"]}]},{"id":"join","type":"parallel.fan_in","edges":[{"to":"success"}]}]}`,
+		"missing edges":     `{"start":"p","nodes":[{"id":"p","type":"parallel","branches":[{"id":"variant","artifacts":["out.txt"]}]},{"id":"join","type":"parallel.fan_in","edges":[{"to":"success"}]}]}`,
+		"node collision":    `{"start":"p","nodes":[{"id":"p","type":"parallel","edges":[{"to":"join"}],"branches":[{"id":"join","artifacts":["out.txt"]}]},{"id":"join","type":"parallel.fan_in","edges":[{"to":"success"}]}]}`,
+	}
+	for name, document := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(document)); err == nil {
+				t.Fatal("invalid structured branch admitted")
+			}
+		})
 	}
 }
 
@@ -239,6 +297,17 @@ func TestGraphSchemaIsCommittedAndClosed(t *testing.T) {
 		if raw.(map[string]any)["additionalProperties"] != false {
 			t.Fatal("node schema is not closed")
 		}
+	}
+	codergen := options[0].(map[string]any)
+	if !reflect.DeepEqual(codergen["required"], []any{"type", "id"}) {
+		t.Fatalf("canonical codergen required fields = %#v", codergen["required"])
+	}
+	parallel := options[1].(map[string]any)
+	branchOptions := parallel["properties"].(map[string]any)["branches"].(map[string]any)["items"].(map[string]any)["anyOf"].([]any)
+	structured := branchOptions[1].(map[string]any)
+	override := structured["properties"].(map[string]any)["codergen"].(map[string]any)
+	if required, exists := override["required"]; exists && len(required.([]any)) != 0 {
+		t.Fatalf("Codergen override required fields = %#v", required)
 	}
 }
 

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -30,6 +31,10 @@ func (h *parallelHandler) Execute(node graph.Node, offered []graph.Edge, scope E
 	if limit <= 0 {
 		return harness.Outcome{}, terminalError("max_parallel must be positive")
 	}
+	workspace := parallel.WorkspacePolicyValue()
+	if workspace != graph.WorkspaceIsolated && workspace != graph.WorkspaceShared {
+		return harness.Outcome{}, terminalError(fmt.Sprintf("unsupported parallel workspace policy %q", workspace))
+	}
 
 	join, err := parallelFanIn(*pipeline, parallel.ID)
 	if err != nil {
@@ -46,27 +51,40 @@ func (h *parallelHandler) Execute(node graph.Node, offered []graph.Edge, scope E
 		return harness.Outcome{}, interruptedError("stopped by operator")
 	}
 	parallelStarted := time.Now()
-	if err := h.store.appendTimeline(timelineEvent{
+	startedEvent := timelineEvent{
 		"type":         "ParallelStarted",
 		"branch_count": len(offered),
-	}); err != nil {
+	}
+	if parallel.Workspace.Present {
+		startedEvent["workspace"] = workspace
+	}
+	if err := h.store.appendTimeline(startedEvent); err != nil {
 		return harness.Outcome{}, terminalError(err.Error())
 	}
 
-	frozen, err := freezeGitWorkspaceWithStop(scope.Workdir, scope.Stop)
-	if err != nil {
-		return harness.Outcome{}, parallelExecutionError(err)
-	}
 	branchIDs := make([]string, len(offered))
 	for index, edge := range offered {
 		branchIDs[index] = edge.To
 	}
-	worktrees, err := createBranchWorktreesWithStop(frozen, h.store.root, branchIDs, scope.Stop)
-	if err != nil {
-		return harness.Outcome{}, parallelExecutionError(err)
+	var worktrees []branchWorktree
+	if workspace == graph.WorkspaceShared {
+		worktrees = sharedBranchWorkspaces(scope.Workdir, branchIDs)
+	} else {
+		frozen, freezeErr := freezeGitWorkspaceWithStop(scope.Workdir, scope.Stop)
+		if freezeErr != nil {
+			return harness.Outcome{}, parallelExecutionError(freezeErr)
+		}
+		worktrees, err = createBranchWorktreesWithStop(frozen, h.store.root, branchIDs, scope.Stop)
+		if err != nil {
+			return harness.Outcome{}, parallelExecutionError(err)
+		}
+	}
+	if err := h.writeResolvedBranches(scope.StageDir, parallel, worktrees); err != nil {
+		return harness.Outcome{}, terminalError(fmt.Sprintf("write resolved branch configuration: %v", err))
 	}
 
 	results, eventErr := h.runBranches(worktrees, join.ID, limit)
+	h.collectArtifacts(scope.StageDir, parallel, results)
 	if err := writeJSON(filepath.Join(scope.StageDir, "branches.json"), results); err != nil {
 		return harness.Outcome{}, terminalError(fmt.Sprintf("write branch evidence: %v", err))
 	}
@@ -88,6 +106,48 @@ func (h *parallelHandler) Execute(node graph.Node, offered []graph.Edge, scope E
 
 	succeeded = true
 	return harness.Outcome{Next: join.ID, Notes: fmt.Sprintf("%d branches converged", len(results))}, nil
+}
+
+type resolvedBranchRecord struct {
+	BranchID  string         `json:"branch_id"`
+	Workspace string         `json:"workspace"`
+	Workdir   string         `json:"workdir"`
+	Artifacts []string       `json:"artifacts"`
+	Codergen  map[string]any `json:"codergen,omitempty"`
+}
+
+func (h *parallelHandler) writeResolvedBranches(stageDir string, parallel *graph.ParallelNode, worktrees []branchWorktree) error {
+	structured := false
+	for _, branch := range parallel.Branches {
+		if !branch.IsLegacy() {
+			structured = true
+			break
+		}
+	}
+	if !structured {
+		return nil
+	}
+	records := make([]resolvedBranchRecord, len(worktrees))
+	for index, worktree := range worktrees {
+		branch, _ := parallel.Branch(worktree.BranchID)
+		records[index] = resolvedBranchRecord{
+			BranchID:  worktree.BranchID,
+			Workspace: string(parallel.WorkspacePolicyValue()),
+			Workdir:   worktree.Workdir,
+			Artifacts: append([]string(nil), branch.Artifacts...),
+		}
+		if node, ok := h.runner.nodes[worktree.BranchID].(*graph.CodergenNode); ok && !branch.IsLegacy() {
+			raw, err := json.Marshal(node)
+			if err != nil {
+				return err
+			}
+			if err := json.Unmarshal(raw, &records[index].Codergen); err != nil {
+				return err
+			}
+			records[index].Codergen["type"] = "codergen"
+		}
+	}
+	return writeJSON(filepath.Join(stageDir, "resolved-branches.json"), records)
 }
 
 func parallelExecutionError(err error) *harness.Error {
@@ -123,6 +183,7 @@ func (h *parallelHandler) runBranches(worktrees []branchWorktree, joinID string,
 						Error:     terminalError(err.Error()),
 						Path:      []string{},
 						Workdir:   worktree.Workdir,
+						Artifacts: []BranchArtifact{},
 						StageDirs: []string{},
 						Segments:  []string{},
 					}
@@ -158,6 +219,7 @@ func (r *Runner) walkBranch(currentID, joinID, workdir string, state *engineStat
 		BranchID:  currentID,
 		Path:      []string{},
 		Workdir:   workdir,
+		Artifacts: []BranchArtifact{},
 		StageDirs: []string{},
 		Segments:  []string{},
 	}

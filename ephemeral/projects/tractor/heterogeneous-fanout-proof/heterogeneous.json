@@ -1,0 +1,49 @@
+{
+  "name": "heterogeneous-fanout-proof",
+  "goal": "Prove per-branch Codergen inheritance and provider/model overrides",
+  "start": "fan_out",
+  "nodes": [
+    {
+      "id": "fan_out",
+      "type": "parallel",
+      "max_parallel": 2,
+      "prompt": "Create the branch's declared artifact exactly as requested and make no other workspace changes.",
+      "llm_provider": "openai",
+      "llm_model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "fidelity": "none",
+      "timeout": "180s",
+      "edges": [{ "to": "join" }],
+      "branches": [
+        {
+          "id": "openai_branch",
+          "artifacts": ["openai.txt"],
+          "codergen": {
+            "prompt": "Write openai.txt with exactly two lines: provider=openai and model=gpt-5.6-sol. Make no other changes."
+          }
+        },
+        {
+          "id": "anthropic_branch",
+          "artifacts": ["anthropic.txt"],
+          "codergen": {
+            "prompt": "Write anthropic.txt with exactly two lines: provider=anthropic and model=claude-sonnet-4-5. Make no other changes.",
+            "llm_provider": "anthropic",
+            "llm_model": "claude-sonnet-4-5",
+            "reasoning_effort": "medium"
+          }
+        }
+      ]
+    },
+    {
+      "id": "join",
+      "type": "parallel.fan_in",
+      "prompt": "Read every declared artifact at the supplied collected path. Confirm both exact two-line contents and report the two paths in notes. Do not modify any files.",
+      "llm_provider": "openai",
+      "llm_model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "fidelity": "none",
+      "timeout": "180s",
+      "edges": [{ "to": "success" }]
+    }
+  ]
+}

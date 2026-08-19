@@ -15,11 +15,13 @@ import (
 // BranchResult is the durable evidence produced for one parallel branch.
 type BranchResult struct {
 	BranchID  string           `json:"branch_id"`
+	Workspace string           `json:"workspace,omitempty"`
 	Outcome   *harness.Outcome `json:"outcome,omitempty"`
 	Error     *harness.Error   `json:"error,omitempty"`
 	Notes     string           `json:"notes"`
 	Path      []string         `json:"path"`
 	Workdir   string           `json:"workdir"`
+	Artifacts []BranchArtifact `json:"artifacts,omitempty"`
 	StageDirs []string         `json:"stage_dirs"`
 	Segments  []string         `json:"segments"`
 }
@@ -50,7 +52,7 @@ func (h *FanInHandler) Execute(node graph.Node, offered []graph.Edge, scope Exec
 		return harness.Outcome{}, terminalError(fmt.Sprintf("read branch evidence for %s: %v", owner.ID, err))
 	}
 	branchRoots := make(map[string]struct{}, len(owner.Branches))
-	for _, branch := range owner.Branches {
+	for _, branch := range owner.BranchIDs() {
 		branchRoots[branch] = struct{}{}
 	}
 	for _, result := range results {
@@ -100,6 +102,12 @@ func renderBranchResults(results []BranchResult) string {
 			rendered.WriteString("\n\n")
 		}
 		fmt.Fprintf(&rendered, "Branch ID: %s\nNotes: %s\nWorktree: %s", result.BranchID, result.Notes, result.Workdir)
+		if len(result.Artifacts) > 0 {
+			rendered.WriteString("\nArtifacts:")
+			for _, artifact := range result.Artifacts {
+				fmt.Fprintf(&rendered, "\n- %s: %s", artifact.Declared, artifact.Path)
+			}
+		}
 	}
 	return rendered.String()
 }

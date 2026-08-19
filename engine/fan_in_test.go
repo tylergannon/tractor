@@ -141,8 +141,8 @@ func TestFanInHandlerRejectsAmbiguousOwnerBeforeBackend(t *testing.T) {
 	}
 	join := &graph.FanInNode{NodeBase: graph.NodeBase{ID: "join"}}
 	pipeline := &graph.Graph{Nodes: []graph.Node{
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "first"}, Branches: []string{"left"}},
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "second"}, Branches: []string{"right"}},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "first"}, Branches: graph.LegacyParallelBranches("left")},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "second"}, Branches: graph.LegacyParallelBranches("right")},
 		customNode("left", "task", []graph.Edge{{To: "join"}}, 0),
 		customNode("right", "task", []graph.Edge{{To: "join"}}, 0),
 		join,
@@ -158,7 +158,7 @@ func TestFanInHandlerRejectsAmbiguousOwnerBeforeBackend(t *testing.T) {
 
 func fanInGraph(join *graph.FanInNode) *graph.Graph {
 	return &graph.Graph{Defaults: graph.Defaults{LLMModel: optional("gpt-5.2")}, Nodes: []graph.Node{
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}, Branches: []string{"branch-a", "branch-b"}},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}, Branches: graph.LegacyParallelBranches("branch-a", "branch-b")},
 		customNode("branch-a", "task", []graph.Edge{{To: "join"}}, 0),
 		customNode("branch-b", "task", []graph.Edge{{To: "join"}}, 0),
 		join,

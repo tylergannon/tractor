@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -15,6 +16,7 @@ import (
 	jsonschema "github.com/tylergannon/go-gen-jsonschema"
 	"github.com/tylergannon/tractor/graph"
 	"github.com/tylergannon/tractor/harness"
+	"github.com/tylergannon/tractor/lint"
 )
 
 func TestParallelRunnerIsolatesBranchesCapsConcurrencyAndFinalizesEvidence(t *testing.T) {
@@ -227,6 +229,120 @@ func TestParallelRunnerWritesFailureEvidenceAndRollsBackBranchCounters(t *testin
 	}
 }
 
+func TestParallelRunnerResolvesHeterogeneousCodergenBranchesAndGathersArtifacts(t *testing.T) {
+	pipeline := parseParallelTestGraph(t, `{
+  "start":"fanout",
+  "nodes":[
+    {
+      "id":"fanout","type":"parallel","max_parallel":1,
+      "prompt":"parent prompt","llm_provider":"openai","llm_model":"gpt-parent","reasoning_effort":"high",
+      "edges":[{"to":"join"}],
+      "branches":[
+        {"id":"openai_branch","artifacts":["openai.txt"],"codergen":{"prompt":"openai prompt"}},
+        {"id":"anthropic_branch","artifacts":["anthropic.txt"],"codergen":{"llm_provider":"anthropic","llm_model":"claude-child","reasoning_effort":"medium"}}
+      ]
+    },
+    {"id":"join","type":"parallel.fan_in","prompt":"inspect artifacts","edges":[{"to":"success"}]}
+  ]
+}`)
+	repo := newGitTestRepository(t)
+	root := t.TempDir()
+	backend := &artifactCaptureBackend{artifacts: map[string]string{
+		"openai_branch":    "openai.txt",
+		"anthropic_branch": "anthropic.txt",
+	}}
+	registry := NewRegistry()
+	config := CodergenConfig{Backend: backend, DefaultModel: "gpt-fan-in"}
+	registry.Register("codergen", NewCodergenHandler(config))
+	registry.Register("parallel.fan_in", NewFanInHandler(config))
+	runner := newTestRunnerWithWorkdir(t, pipeline, registry, root, repo, backend)
+
+	result, err := runner.Run()
+	if err != nil || result.Status != RunCompleted {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	turns := backend.snapshot()
+	if len(turns) != 3 {
+		t.Fatalf("turns = %#v", turns)
+	}
+	if turns[0].NodeID != "openai_branch" || turns[0].Provider != "openai" || turns[0].Model != "gpt-parent" || turns[0].ReasoningEffort != "high" || turns[0].Parts[0].Text != "openai prompt" {
+		t.Fatalf("inherited turn = %#v", turns[0])
+	}
+	if turns[1].NodeID != "anthropic_branch" || turns[1].Provider != "anthropic" || turns[1].Model != "claude-child" || turns[1].ReasoningEffort != "medium" || turns[1].Parts[0].Text != "parent prompt" {
+		t.Fatalf("overridden turn = %#v", turns[1])
+	}
+	evidence, err := readBranchResults(filepath.Join(root, "stages", "latest", "fanout", "branches.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, branch := range evidence {
+		if branch.Workspace != "isolated" || len(branch.Artifacts) != 1 {
+			t.Fatalf("branch evidence = %#v", branch)
+		}
+		artifact := branch.Artifacts[0]
+		if !strings.Contains(artifact.Path, filepath.Join("artifacts", branch.BranchID)) {
+			t.Fatalf("gathered artifact path = %q", artifact.Path)
+		}
+		raw, err := os.ReadFile(artifact.Path)
+		if err != nil || string(raw) != branch.BranchID {
+			t.Fatalf("gathered artifact = %q, %v", raw, err)
+		}
+		resolved, err := os.ReadFile(filepath.Join(branch.StageDirs[0], "resolved.json"))
+		if err != nil || !bytes.Contains(resolved, []byte(`"type": "codergen"`)) || !bytes.Contains(resolved, []byte(`"id": "`+branch.BranchID+`"`)) {
+			t.Fatalf("resolved runtime branch = %s, %v", resolved, err)
+		}
+	}
+	resolvedRaw, err := os.ReadFile(filepath.Join(root, "stages", "latest", "fanout", "resolved-branches.json"))
+	if err != nil || !bytes.Contains(resolvedRaw, []byte(`"type": "codergen"`)) || !bytes.Contains(resolvedRaw, []byte(`"llm_model": "claude-child"`)) {
+		t.Fatalf("resolved branches = %s, %v", resolvedRaw, err)
+	}
+}
+
+func TestParallelRunnerSharedWorkspaceExposesDeclaredArtifactsToFanIn(t *testing.T) {
+	pipeline := parseParallelTestGraph(t, `{
+  "start":"fanout",
+  "nodes":[
+    {
+      "id":"fanout","type":"parallel","workspace":"shared","max_parallel":2,
+      "prompt":"write your artifact","llm_provider":"openai","llm_model":"gpt-shared",
+      "edges":[{"to":"join"}],
+      "branches":[
+        {"id":"left","artifacts":["left.txt"]},
+        {"id":"right","artifacts":["right.txt"]}
+      ]
+    },
+    {"id":"join","type":"parallel.fan_in","prompt":"expose all artifacts","edges":[{"to":"success"}]}
+  ]
+}`)
+	workdir := t.TempDir()
+	root := t.TempDir()
+	backend := &artifactCaptureBackend{artifacts: map[string]string{"left": "left.txt", "right": "right.txt"}}
+	registry := NewRegistry()
+	config := CodergenConfig{Backend: backend, DefaultModel: "gpt-fan-in"}
+	registry.Register("codergen", NewCodergenHandler(config))
+	registry.Register("parallel.fan_in", NewFanInHandler(config))
+	runner := newTestRunnerWithWorkdir(t, pipeline, registry, root, workdir, backend)
+
+	result, err := runner.Run()
+	if err != nil || result.Status != RunCompleted {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	for _, artifact := range []string{"left.txt", "right.txt"} {
+		raw, err := os.ReadFile(filepath.Join(workdir, artifact))
+		if err != nil || strings.TrimSuffix(artifact, ".txt") != string(raw) {
+			t.Fatalf("shared artifact %s = %q, %v", artifact, raw, err)
+		}
+	}
+	if inventory, err := readWorktreeInventory(root); err != nil || len(inventory) != 0 {
+		t.Fatalf("shared worktree inventory = %#v, %v", inventory, err)
+	}
+	turns := backend.snapshot()
+	join := turns[len(turns)-1]
+	if join.NodeID != "join" || !strings.Contains(join.Parts[0].Text, filepath.Join(workdir, "left.txt")) || !strings.Contains(join.Parts[0].Text, filepath.Join(workdir, "right.txt")) {
+		t.Fatalf("fan-in prompt = %q", join.Parts[0].Text)
+	}
+}
+
 func TestParallelRunnerStopInterruptsActiveAndQueuedBranches(t *testing.T) {
 	repo := newGitTestRepository(t)
 	root := t.TempDir()
@@ -290,7 +406,7 @@ func parallelRunnerGraph(branchIDs []string, maxParallel int) graph.Graph {
 	nodes = append(nodes, startNode("start", "fanout"))
 	parallel := &graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}}
 	parallel.MaxParallel = jsonschema.Optional[int]{Present: true, Value: maxParallel}
-	parallel.Branches = append([]string(nil), branchIDs...)
+	parallel.Branches = graph.LegacyParallelBranches(branchIDs...)
 	nodes = append(nodes, parallel)
 	for _, branchID := range branchIDs {
 		nodes = append(nodes, customNode(branchID, "task", []graph.Edge{{To: "join"}}, 0))
@@ -335,4 +451,54 @@ func branchResultIDs(results []BranchResult) []string {
 		ids[index] = result.BranchID
 	}
 	return ids
+}
+
+func parseParallelTestGraph(t *testing.T, document string) graph.Graph {
+	t.Helper()
+	pipeline, err := graph.Parse([]byte(document))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diagnostics := lint.Validate(*pipeline); lint.HasErrors(diagnostics) {
+		t.Fatalf("lint diagnostics = %#v", diagnostics)
+	}
+	return *pipeline
+}
+
+type artifactCaptureBackend struct {
+	mu        sync.Mutex
+	turns     []harness.CodergenTurn
+	artifacts map[string]string
+}
+
+func (b *artifactCaptureBackend) Run(turn harness.CodergenTurn) (harness.Outcome, *harness.Error) {
+	b.mu.Lock()
+	b.turns = append(b.turns, turn)
+	b.mu.Unlock()
+	if artifact := b.artifacts[turn.NodeID]; artifact != "" {
+		if err := os.WriteFile(filepath.Join(turn.Workdir, artifact), []byte(turn.NodeID), 0o644); err != nil {
+			return harness.Outcome{}, terminalError(err.Error())
+		}
+	}
+	return harness.Outcome{Notes: "completed " + turn.NodeID}, nil
+}
+
+func (*artifactCaptureBackend) RunSupervisor(harness.SupervisorTurn) (harness.Verdict, *harness.Error) {
+	return harness.Verdict{}, nil
+}
+
+func (*artifactCaptureBackend) Steer([]harness.ContentPart) harness.SteerStatus {
+	return harness.SteerNotActive
+}
+
+func (*artifactCaptureBackend) InterruptAll() {}
+
+func (*artifactCaptureBackend) Bindings() map[string]harness.ThreadBinding { return nil }
+
+func (*artifactCaptureBackend) SetBindingOpened(harness.BindingOpened) {}
+
+func (b *artifactCaptureBackend) snapshot() []harness.CodergenTurn {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]harness.CodergenTurn(nil), b.turns...)
 }
