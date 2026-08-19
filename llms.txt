@@ -1,14 +1,14 @@
 # Tractor
 
-> Tractor runs and steers Attractor-compatible agent pipelines. This repository is a Codex plugin with a deferred stdio MCP tool surface.
+> Tractor runs and steers Attractor-compatible agent pipelines. This repository is both a Codex plugin and a Claude Code plugin, sharing one set of skills and one MCP server configuration between them, with a deferred stdio MCP tool surface.
 
 Repository: https://github.com/tylergannon/tractor
 
 ## Requirements
 
-- Codex with plugin marketplace support.
+- Codex with plugin marketplace support, or Claude Code with plugin support.
 - Go 1.26 or newer on the machine running the plugin.
-- The Go binary install directory on the `PATH` inherited by Codex.
+- The Go binary install directory on the `PATH` inherited by the agent host.
 
 ## Install in Codex
 
@@ -23,6 +23,21 @@ declare detached-run support, and removes the obsolete source-building wrapper
 cache. It does not stop detached runs, and it preserves legacy MCP servers that
 still own child runs. Start a new Codex task after installation or update so the
 plugin's MCP server is loaded.
+
+## Install in Claude Code
+
+```sh
+go install github.com/tylergannon/tractor/cmd/tractor@latest
+claude plugin marketplace add tylergannon/tractor
+claude plugin install tractor@tractor
+```
+
+Or, from inside an interactive session: `/plugin marketplace add
+tylergannon/tractor` then `/plugin install tractor@tractor`. Claude Code
+auto-discovers the plugin's skill from `skills/` and its MCP server from
+`.mcp.json` at the repository root — the same files the Codex plugin uses, not
+a separate copy. Start a new Claude Code session after installation or update,
+and run `claude plugin update tractor@tractor` to pick up a later release.
 
 ## MCP server
 
