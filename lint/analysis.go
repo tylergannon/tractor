@@ -117,7 +117,7 @@ func (a *analysis) parallelBlocks() []*parallelBlock {
 
 func (a *analysis) analyzeParallel(node *graph.ParallelNode) *parallelBlock {
 	block := &parallelBlock{node: node, disjoint: true, union: map[string]struct{}{}}
-	for _, target := range node.Branches {
+	for _, target := range node.BranchIDs() {
 		block.branches = append(block.branches, a.walkToFirstFanIn(target))
 	}
 

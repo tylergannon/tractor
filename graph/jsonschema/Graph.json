@@ -133,9 +133,107 @@
             "properties": {
               "branches": {
                 "items": {
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "description": "ParallelBranch is either a legacy branch-root reference or a synthesized Codergen branch with declared output artifacts.",
+                      "properties": {
+                        "artifacts": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "minItems": 1,
+                          "type": "array"
+                        },
+                        "codergen": {
+                          "additionalProperties": false,
+                          "description": "CodergenOverride selectively replaces fields inherited from a parallel node's Codergen configuration. Every field is optional by design.",
+                          "properties": {
+                            "fidelity": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "llm_model": {
+                              "type": "string"
+                            },
+                            "llm_provider": {
+                              "type": "string"
+                            },
+                            "max_retries": {
+                              "type": "integer"
+                            },
+                            "max_visits": {
+                              "type": "integer"
+                            },
+                            "prompt": {
+                              "type": "string"
+                            },
+                            "reasoning_effort": {
+                              "enum": [
+                                "low",
+                                "medium",
+                                "high"
+                              ],
+                              "type": "string"
+                            },
+                            "thread_id": {
+                              "type": "string"
+                            },
+                            "timeout": {
+                              "description": "Duration is an integer followed by ms, s, m, h, or d.",
+                              "pattern": "^[0-9]+(ms|s|m|h|d)$",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
+                        },
+                        "id": {
+                          "not": {
+                            "enum": [
+                              "success",
+                              "failure"
+                            ]
+                          },
+                          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "artifacts"
+                      ],
+                      "type": "object"
+                    }
+                  ]
                 },
                 "type": "array"
+              },
+              "edges": {
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Edge is an outgoing transition owned by its origin node.",
+                  "properties": {
+                    "condition": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "to"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "fidelity": {
+                "type": "string"
               },
               "id": {
                 "not": {
@@ -150,14 +248,50 @@
               "label": {
                 "type": "string"
               },
+              "llm_model": {
+                "type": "string"
+              },
+              "llm_provider": {
+                "type": "string"
+              },
               "max_parallel": {
+                "type": "integer"
+              },
+              "max_retries": {
                 "type": "integer"
               },
               "max_visits": {
                 "type": "integer"
               },
+              "prompt": {
+                "type": "string"
+              },
+              "reasoning_effort": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              "thread_id": {
+                "type": "string"
+              },
+              "timeout": {
+                "description": "Duration is an integer followed by ms, s, m, h, or d.",
+                "pattern": "^[0-9]+(ms|s|m|h|d)$",
+                "type": "string"
+              },
               "type": {
                 "const": "parallel",
+                "type": "string"
+              },
+              "workspace": {
+                "description": "WorkspacePolicy controls whether parallel branches receive separate Git worktrees or run together in the caller's workspace.",
+                "enum": [
+                  "isolated",
+                  "shared"
+                ],
                 "type": "string"
               }
             },

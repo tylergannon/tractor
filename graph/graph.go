@@ -111,11 +111,16 @@ type CodergenNode struct {
 	Edges     []Edge                   `json:"edges,omitzero"`
 	MaxVisits jsonschema.Optional[int] `json:"max_visits,omitzero"`
 	LLMNodeFields
+	synthesized bool
 }
 
 func (*CodergenNode) isNode()           {}
 func (n *CodergenNode) Base() *NodeBase { return &n.NodeBase }
 func (*CodergenNode) NodeType() string  { return "codergen" }
+
+// IsSynthesized reports whether the node was resolved from a structured
+// parallel branch.
+func (n *CodergenNode) IsSynthesized() bool { return n.synthesized }
 
 // FanInNode evaluates parallel branch evidence with an LLM turn.
 type FanInNode struct {
@@ -133,6 +138,21 @@ func (*FanInNode) NodeType() string  { return "parallel.fan_in" }
 type LLMNodeFields struct {
 	Prompt          jsonschema.Optional[string]   `json:"prompt,omitzero"`
 	MaxRetries      jsonschema.Optional[int]      `json:"max_retries,omitzero"`
+	Fidelity        jsonschema.Optional[string]   `json:"fidelity,omitzero"`
+	ThreadID        jsonschema.Optional[string]   `json:"thread_id,omitzero"`
+	Timeout         jsonschema.Optional[Duration] `json:"timeout,omitzero"`
+	LLMModel        jsonschema.Optional[string]   `json:"llm_model,omitzero"`
+	LLMProvider     jsonschema.Optional[string]   `json:"llm_provider,omitzero"`
+	ReasoningEffort jsonschema.Optional[string]   `json:"reasoning_effort,omitzero"`
+}
+
+// CodergenOverride selectively replaces fields inherited from a parallel
+// node's Codergen configuration. Every field is optional by design.
+type CodergenOverride struct {
+	Label           jsonschema.Optional[string]   `json:"label,omitzero"`
+	Prompt          jsonschema.Optional[string]   `json:"prompt,omitzero"`
+	MaxRetries      jsonschema.Optional[int]      `json:"max_retries,omitzero"`
+	MaxVisits       jsonschema.Optional[int]      `json:"max_visits,omitzero"`
 	Fidelity        jsonschema.Optional[string]   `json:"fidelity,omitzero"`
 	ThreadID        jsonschema.Optional[string]   `json:"thread_id,omitzero"`
 	Timeout         jsonschema.Optional[Duration] `json:"timeout,omitzero"`
@@ -163,12 +183,50 @@ func (*ToolNode) isNode()           {}
 func (n *ToolNode) Base() *NodeBase { return &n.NodeBase }
 func (*ToolNode) NodeType() string  { return "tool" }
 
+// WorkspacePolicy controls whether parallel branches receive separate Git
+// worktrees or run together in the caller's workspace.
+type WorkspacePolicy string
+
+const (
+	WorkspaceIsolated WorkspacePolicy = "isolated"
+	WorkspaceShared   WorkspacePolicy = "shared"
+)
+
+// ParallelBranch is either a legacy branch-root reference or a synthesized
+// Codergen branch with declared output artifacts.
+type ParallelBranch struct {
+	ID        string                                `json:"id"`
+	Artifacts []string                              `json:"artifacts"`
+	Codergen  jsonschema.Optional[CodergenOverride] `json:"codergen,omitzero"`
+	legacy    bool
+}
+
+// LegacyParallelBranch constructs an existing-style branch-root reference.
+func LegacyParallelBranch(id string) ParallelBranch {
+	return ParallelBranch{ID: id, legacy: true}
+}
+
+// LegacyParallelBranches constructs existing-style branch-root references.
+func LegacyParallelBranches(ids ...string) []ParallelBranch {
+	branches := make([]ParallelBranch, len(ids))
+	for index, id := range ids {
+		branches[index] = LegacyParallelBranch(id)
+	}
+	return branches
+}
+
+// IsLegacy reports whether the branch was authored as a string reference.
+func (b ParallelBranch) IsLegacy() bool { return b.legacy }
+
 // ParallelNode concurrently walks each outgoing branch.
 type ParallelNode struct {
 	NodeBase
-	Branches    []string                 `json:"branches"`
-	MaxParallel jsonschema.Optional[int] `json:"max_parallel,omitzero"`
-	MaxVisits   jsonschema.Optional[int] `json:"max_visits,omitzero"`
+	Branches    []ParallelBranch                     `json:"branches"`
+	Edges       []Edge                               `json:"edges,omitzero"`
+	MaxParallel jsonschema.Optional[int]             `json:"max_parallel,omitzero"`
+	MaxVisits   jsonschema.Optional[int]             `json:"max_visits,omitzero"`
+	Workspace   jsonschema.Optional[WorkspacePolicy] `json:"workspace,omitzero"`
+	LLMNodeFields
 }
 
 func (*ParallelNode) isNode()           {}
@@ -197,6 +255,34 @@ func (n *ParallelNode) MaxParallelValue() int {
 		return n.MaxParallel.Value
 	}
 	return 4
+}
+
+// WorkspacePolicyValue returns the explicit workspace policy or the
+// compatibility-preserving isolated default.
+func (n *ParallelNode) WorkspacePolicyValue() WorkspacePolicy {
+	if n.Workspace.Present {
+		return n.Workspace.Value
+	}
+	return WorkspaceIsolated
+}
+
+// BranchIDs returns branch roots in authored order.
+func (n *ParallelNode) BranchIDs() []string {
+	ids := make([]string, len(n.Branches))
+	for index, branch := range n.Branches {
+		ids[index] = branch.ID
+	}
+	return ids
+}
+
+// Branch returns branch metadata by ID.
+func (n *ParallelNode) Branch(id string) (ParallelBranch, bool) {
+	for _, branch := range n.Branches {
+		if branch.ID == id {
+			return branch, true
+		}
+	}
+	return ParallelBranch{}, false
 }
 
 // IntervalValue returns the explicit patrol interval or the system default.
@@ -231,7 +317,7 @@ func RoutingTargets(node Node) []string {
 		}
 		return targets
 	case *ParallelNode:
-		return node.Branches
+		return node.BranchIDs()
 	default:
 		return nil
 	}

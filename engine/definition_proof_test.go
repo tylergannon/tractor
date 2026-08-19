@@ -187,7 +187,7 @@ func TestDefinitionProofParallelReplayUsesFreshWorktreeAndReboundSession(t *test
 	sends := filepath.Join(t.TempDir(), "sends.jsonl")
 	parallel := &graph.ParallelNode{
 		NodeBase:    graph.NodeBase{ID: "fanout"},
-		Branches:    []string{"send", "other"},
+		Branches:    graph.LegacyParallelBranches("send", "other"),
 		MaxParallel: jsonschema.Optional[int]{Present: true, Value: 2},
 	}
 	pipeline := testGraph(

@@ -1,0 +1,50 @@
+{
+  "name": "shared-workspace-fanout-proof",
+  "goal": "Prove coordinated declared artifacts in one shared workspace",
+  "start": "fan_out",
+  "nodes": [
+    {
+      "id": "fan_out",
+      "type": "parallel",
+      "workspace": "shared",
+      "max_parallel": 2,
+      "prompt": "Create the branch's distinct declared artifact in the shared workspace and make no other changes.",
+      "llm_provider": "openai",
+      "llm_model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "fidelity": "none",
+      "timeout": "180s",
+      "edges": [{ "to": "join" }],
+      "branches": [
+        {
+          "id": "shared_left",
+          "artifacts": ["shared-left.txt"],
+          "codergen": {
+            "prompt": "Write shared-left.txt containing exactly shared-left followed by a newline. Make no other changes."
+          }
+        },
+        {
+          "id": "shared_right",
+          "artifacts": ["shared-right.txt"],
+          "codergen": {
+            "prompt": "Write shared-right.txt containing exactly shared-right followed by a newline. Make no other changes.",
+            "llm_provider": "anthropic",
+            "llm_model": "claude-sonnet-4-5",
+            "reasoning_effort": "medium"
+          }
+        }
+      ]
+    },
+    {
+      "id": "join",
+      "type": "parallel.fan_in",
+      "prompt": "Read both declared shared-workspace artifacts at the supplied paths, verify their exact contents, and report both paths in notes. Do not modify files.",
+      "llm_provider": "openai",
+      "llm_model": "gpt-5.6-sol",
+      "reasoning_effort": "low",
+      "fidelity": "none",
+      "timeout": "180s",
+      "edges": [{ "to": "success" }]
+    }
+  ]
+}

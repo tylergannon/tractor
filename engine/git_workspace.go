@@ -35,6 +35,14 @@ type worktreeInventoryEntry struct {
 	TS       time.Time `json:"ts"`
 }
 
+func sharedBranchWorkspaces(workdir string, branchIDs []string) []branchWorktree {
+	workspaces := make([]branchWorktree, len(branchIDs))
+	for index, branchID := range branchIDs {
+		workspaces[index] = branchWorktree{BranchID: branchID, Path: workdir, Workdir: workdir}
+	}
+	return workspaces
+}
+
 func freezeGitWorkspace(workdir string) (gitWorkspaceSnapshot, error) {
 	return freezeGitWorkspaceWithStop(workdir, nil)
 }

@@ -571,7 +571,7 @@ func (a *analysis) branchRootMaxVisits() []Diagnostic {
 			continue
 		}
 		seen := map[string]struct{}{}
-		for _, target := range parallel.Branches {
+		for _, target := range parallel.BranchIDs() {
 			if _, duplicate := seen[target]; duplicate {
 				continue
 			}

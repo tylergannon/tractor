@@ -28,7 +28,7 @@ func TestRunnerTimelineNarratesRetriesParallelBranchesAndCheckpoints(t *testing.
 	root := t.TempDir()
 	retry := customNode("retry", "retry_task", []graph.Edge{{To: "fanout"}}, 0).(*graph.CodergenNode)
 	retry.MaxRetries = jsonschema.Optional[int]{Present: true, Value: 1}
-	parallel := &graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}, Branches: []string{"left", "right"}}
+	parallel := &graph.ParallelNode{NodeBase: graph.NodeBase{ID: "fanout"}, Branches: graph.LegacyParallelBranches("left", "right")}
 	parallel.MaxParallel = jsonschema.Optional[int]{Present: true, Value: 1}
 	pipeline := testGraph(
 		startNode("start", "retry"),

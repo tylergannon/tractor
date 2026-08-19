@@ -180,7 +180,7 @@ func TestParallelConvergenceAllowsCycleWithRouteToFanIn(t *testing.T) {
 
 func TestMissingBranchTargetDoesNotCascade(t *testing.T) {
 	g := validParallel()
-	parallel(g).Branches[0] = "missing"
+	parallel(g).Branches[0] = graph.LegacyParallelBranch("missing")
 	diagnostics := lint.Validate(g)
 	if _, ok := findDiagnostic(diagnostics, "edge_target_exists"); !ok {
 		t.Fatal("missing edge_target_exists")
@@ -254,7 +254,7 @@ func validLinear() graph.Graph {
 
 func validParallel() graph.Graph {
 	return graph.Graph{Start: "parallel", Nodes: []graph.Node{
-		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "parallel"}, Branches: []string{"left", "right"}},
+		&graph.ParallelNode{NodeBase: graph.NodeBase{ID: "parallel"}, Branches: graph.LegacyParallelBranches("left", "right")},
 		codergen("left", edge("join")),
 		codergen("right", edge("join")),
 		fanIn("join", edge(graph.Success)),
@@ -271,7 +271,7 @@ func overlappingParallel() graph.Graph {
 
 func nestedParallel() graph.Graph {
 	g := validParallel()
-	g.Nodes = append(g.Nodes, &graph.ParallelNode{NodeBase: graph.NodeBase{ID: "nested"}, Branches: []string{"join"}})
+	g.Nodes = append(g.Nodes, &graph.ParallelNode{NodeBase: graph.NodeBase{ID: "nested"}, Branches: graph.LegacyParallelBranches("join")})
 	coder(g, "left").Edges = []graph.Edge{edge("nested")}
 	return g
 }

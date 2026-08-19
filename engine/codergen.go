@@ -59,6 +59,23 @@ func (h *CodergenHandler) executeTurn(node graph.Node, fields *graph.LLMNodeFiel
 	if validationErr := harness.ValidateCodergenTurn(validationTurn); validationErr != nil {
 		return harness.Outcome{}, validationErr
 	}
+	if codergen, ok := node.(*graph.CodergenNode); ok && codergen.IsSynthesized() {
+		if err := writeJSON(filepath.Join(scope.StageDir, "resolved.json"), resolvedCodergenRecord{
+			Type:            "codergen",
+			ID:              node.Base().ID,
+			Prompt:          prompt,
+			Provider:        validationTurn.Provider,
+			Model:           validationTurn.Model,
+			ReasoningEffort: validationTurn.ReasoningEffort,
+			Fidelity:        validationTurn.Fidelity,
+			ThreadID:        validationTurn.ThreadKey,
+			Timeout:         validationTurn.Timeout.String(),
+			Workdir:         validationTurn.Workdir,
+			RunLog:          validationTurn.RunLog,
+		}); err != nil {
+			return harness.Outcome{}, terminalError(fmt.Sprintf("write resolved Codergen configuration: %v", err))
+		}
+	}
 	var outcome harness.Outcome
 	if h.config.Backend == nil {
 		outcome = harness.Outcome{Notes: "[Simulated] Stage completed: " + node.Base().ID}
@@ -77,6 +94,20 @@ func (h *CodergenHandler) executeTurn(node graph.Node, fields *graph.LLMNodeFiel
 		return harness.Outcome{}, terminalError(fmt.Sprintf("write response: %v", err))
 	}
 	return outcome, nil
+}
+
+type resolvedCodergenRecord struct {
+	Type            string               `json:"type"`
+	ID              string               `json:"id"`
+	Prompt          string               `json:"prompt"`
+	Provider        string               `json:"llm_provider"`
+	Model           string               `json:"llm_model"`
+	ReasoningEffort string               `json:"reasoning_effort"`
+	Fidelity        harness.FidelityMode `json:"fidelity"`
+	ThreadID        string               `json:"thread_id,omitempty"`
+	Timeout         string               `json:"timeout"`
+	Workdir         string               `json:"workdir"`
+	RunLog          string               `json:"run_log"`
 }
 
 func (h *CodergenHandler) turn(node graph.Node, fields *graph.LLMNodeFields, offered []graph.Edge, scope ExecutionScope, pipeline *graph.Graph, prompt string) (harness.CodergenTurn, *harness.Error) {

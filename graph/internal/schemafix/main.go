@@ -48,6 +48,11 @@ func fixSchema(check bool) error {
 		switch typeName {
 		case "parallel":
 			required = append(required, "branches")
+			branches := object(props["branches"])
+			structured := branches["items"]
+			branches["items"] = map[string]any{
+				"anyOf": []any{map[string]any{"type": "string"}, structured},
+			}
 		case "tool":
 			required = append(required, "tool_command", "on_success")
 		case "supervisor":
@@ -91,6 +96,12 @@ func walk(value any) {
 			}
 			if effort, ok := props["reasoning_effort"].(map[string]any); ok {
 				effort["enum"] = []any{"low", "medium", "high"}
+			}
+			if workspace, ok := props["workspace"].(map[string]any); ok {
+				workspace["enum"] = []any{"isolated", "shared"}
+			}
+			if artifacts, ok := props["artifacts"].(map[string]any); ok {
+				artifacts["minItems"] = 1
 			}
 			if _, edge := props["to"]; edge {
 				current["required"] = []any{"to"}
