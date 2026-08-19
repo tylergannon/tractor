@@ -105,6 +105,25 @@ the MCP server does not stop the run. A later MCP server can use the same
 whose persisted command identity matches that run; repeating the call after the
 graceful window escalates to a forced stop.
 
+## Claude Code plugin
+
+This repository is also a Claude Code plugin, sharing its skills and MCP
+server configuration with the Codex plugin above rather than duplicating them.
+Install the Tractor binary first, then add and install the plugin:
+
+```sh
+go install github.com/tylergannon/tractor/cmd/tractor@latest
+claude plugin marketplace add tylergannon/tractor
+claude plugin install tractor@tractor
+```
+
+The same steps work from inside an interactive Claude Code session as
+`/plugin marketplace add tylergannon/tractor` and `/plugin install
+tractor@tractor`. The Go binary directory must be on the `PATH` Claude Code
+inherits. Start a new Claude Code session after installation or update so the
+plugin launches the installed binary with `tractor mcp`, and refresh with
+`claude plugin update tractor@tractor` after a new Tractor release.
+
 ## License
 
 Tractor is available under the [MIT License](LICENSE).

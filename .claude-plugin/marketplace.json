@@ -1,0 +1,15 @@
+{
+  "name": "tractor",
+  "description": "Tractor's Claude Code plugin: run and steer multi-agent pipelines through MCP.",
+  "owner": {
+    "name": "Tyler Gannon",
+    "url": "https://github.com/tylergannon"
+  },
+  "plugins": [
+    {
+      "name": "tractor",
+      "source": "./",
+      "description": "Run and steer Tractor pipelines from Claude Code through MCP."
+    }
+  ]
+}

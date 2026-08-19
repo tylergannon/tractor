@@ -1,0 +1,14 @@
+{
+  "name": "tractor",
+  "displayName": "Tractor",
+  "version": "0.5.0",
+  "description": "Run and steer Tractor pipelines from Claude Code through MCP.",
+  "author": {
+    "name": "Tyler Gannon",
+    "url": "https://github.com/tylergannon"
+  },
+  "homepage": "https://github.com/tylergannon/tractor",
+  "repository": "https://github.com/tylergannon/tractor",
+  "keywords": ["agents", "mcp", "pipelines", "tractor"],
+  "mcpServers": "./.mcp.json"
+}
