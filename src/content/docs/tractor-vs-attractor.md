@@ -2,7 +2,7 @@
 title: Tractor vs. upstream Attractor
 description: Tractor keeps Attractor's declarative graph and orchestration intent, but replaces several foundational contracts to fit real coding-agent harnesses.
 eyebrow: Specification comparison
-order: 2
+order: 3
 sourceLabel: Upstream strongdm/attractor at fb57a55
 sourceUrl: https://github.com/strongdm/attractor/blob/fb57a55ed97372a27ac90102f436947e29f48426/attractor-spec.md
 ---

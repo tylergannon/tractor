@@ -2,7 +2,7 @@
 title: Authoring pipelines
 description: Write a small typed graph, validate it, and let Tractor coordinate the work through the agent harnesses you already use.
 eyebrow: Pipeline guide
-order: 1
+order: 2
 sourceLabel: Read the normative Tractor specification
 sourceUrl: https://github.com/tylergannon/tractor/blob/main/docs/spec.md
 ---
