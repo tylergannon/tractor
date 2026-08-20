@@ -32,23 +32,57 @@ type runnerConfig struct {
 	binary   string
 	baseArgs []string
 	env      []string
+	homeDir  string // override for ensureNativeWriteHook; "" means os.UserHomeDir()
 }
 
 // Adapter translates the neutral harness contract to agy's stream-json CLI.
 type Adapter struct {
-	mu     sync.Mutex
-	closed bool
-	stderr io.Writer
-	states map[string]*sessionState
-	config runnerConfig
+	mu       sync.Mutex
+	closed   bool
+	stderr   io.Writer
+	states   map[string]*sessionState
+	config   runnerConfig
+	hookOnce sync.Once
+	hookErr  *harness.Error
 }
 
 type sessionState struct {
-	opMu         sync.Mutex
-	mu           sync.Mutex
-	workdir      string
-	active       *activeTurn
-	pendingSteer [][]harness.ContentPart
+	opMu    sync.Mutex
+	mu      sync.Mutex
+	workdir string
+	active  *activeTurn
+	// agyConversationID overrides the externally-visible Tractor session ID
+	// as the actual `--conversation` argument once a repair has moved this
+	// session onto a fresh agy conversation (see the artifact-path repair
+	// branch in RunTurn). Empty means "use the external session ID
+	// unchanged" — the common case, true for every session that has never
+	// needed a repair.
+	agyConversationID string
+	pendingSteer      [][]harness.ContentPart
+}
+
+// resolveConversationID returns the agy conversation external callers
+// should currently resume for this session: the repaired conversation ID
+// if a prior artifact-path repair adopted one, otherwise external
+// unchanged.
+func (s *sessionState) resolveConversationID(external string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.agyConversationID != "" {
+		return s.agyConversationID
+	}
+	return external
+}
+
+// adoptConversationID records the agy conversation ID a fresh-conversation
+// artifact-path repair actually landed on, so every later turn or Compact
+// call against this session's external ID resumes it instead of the
+// original (possibly status-poisoned — see the worklog's "sticky
+// conversation-status defect") conversation.
+func (s *sessionState) adoptConversationID(id string) {
+	s.mu.Lock()
+	s.agyConversationID = id
+	s.mu.Unlock()
 }
 
 type activeTurn struct {
@@ -163,12 +197,13 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	if input.Timeout > 0 {
 		deadline = time.Now().Add(input.Timeout)
 	}
+	originalPrompt := artifactMetadataPromptPreamble + joinParts(input.Parts)
 	request := runRequest{
-		prompt:          joinParts(input.Parts),
+		prompt:          originalPrompt,
 		model:           input.Model,
 		effort:          input.ReasoningEffort,
 		workdir:         absolute,
-		sessionID:       input.SessionID,
+		sessionID:       state.resolveConversationID(input.SessionID),
 		outputSchema:    schemaFile,
 		timeout:         remaining(deadline, input.Timeout),
 		projector:       projector,
@@ -179,7 +214,38 @@ func (a *Adapter) RunTurn(input harness.RunTurnInput, onEvent harness.OnEvent) (
 	}
 	result, active, runErr := a.runWithSteering(state, request, deadline, input.Timeout)
 	if runErr != nil {
-		return nil, runErr
+		if !isArtifactPathError(runErr) {
+			return nil, runErr
+		}
+		// Do not resume the conversation that just failed: the worklog's
+		// "sticky conversation-status defect" found that once a
+		// conversation has taken one artifact-path/hook-denial failure,
+		// resumed turns keep reporting that stale error at the top level
+		// even when their own actions succeed or use no tools at all — so
+		// resuming here would very likely make this repair unrecoverable
+		// by construction, independent of what the model actually does.
+		// Start a fresh conversation instead, carrying the original prompt
+		// plus a corrective instruction, and (on success) adopt it as this
+		// session's live conversation below so later turns/Compact calls
+		// against the same external session ID resume the repaired
+		// conversation, not the abandoned one.
+		repairPrompt := artifactWriteRepairPrompt(originalPrompt, runErr.Message)
+		repairParts := []harness.ContentPart{{Type: harness.ContentPartText, Text: repairPrompt}}
+		projector.user(repairParts)
+		request.prompt = repairPrompt
+		request.sessionID = ""
+		request.newProject = true
+		request.timeout = remaining(deadline, input.Timeout)
+		if request.timeout <= 0 && input.Timeout > 0 {
+			return nil, interrupted("turn timed out and was interrupted")
+		}
+		result, active, runErr = a.runWithSteering(state, request, deadline, input.Timeout)
+		if runErr != nil {
+			return nil, runErr
+		}
+		state.adoptConversationID(result.conversationID)
+		request.sessionID = result.conversationID
+		request.newProject = false
 	}
 	validated, invalid := validateStructured(validator, result.structured)
 	if mismatch := compareEchoedSchema(input.OutputSchema, result.echoedSchema); mismatch != nil {
@@ -272,7 +338,7 @@ func (a *Adapter) Compact(sessionID, workdir string) *harness.Error {
 	_, _, runErr := a.runForState(state, runRequest{
 		prompt:          "/compact",
 		workdir:         absolute,
-		sessionID:       sessionID,
+		sessionID:       state.resolveConversationID(sessionID),
 		timeout:         createTimeout,
 		requireResultID: true,
 	})
@@ -303,6 +369,81 @@ func (a *Adapter) Close() {
 			interruptProcess(active)
 		}
 	}
+}
+
+// ensureHook provisions (once per Adapter) the Tractor-owned PreToolUse
+// allow/deny hook that intercepts agy's native write tools before they
+// execute. See native_write_hook.go for why this — not the documented
+// custom-agent tools: allowlist — is the mechanism Tractor actually uses.
+//
+// Before writing anything, it checks the installed agy binary's version
+// against minSupportedAgyVersion: PreToolUse hooks.json support was only
+// verified live against agy 1.1.15 (see the worklog), so an older or
+// unparseable version fails fast with an actionable error naming the check
+// and how to resolve it, rather than silently provisioning a hook the
+// running agy may not honor and trusting it worked.
+func (a *Adapter) ensureHook() *harness.Error {
+	a.hookOnce.Do(func() {
+		if err := verifyAgyHookSupport(a.config); err != nil {
+			a.hookErr = err
+			return
+		}
+		home := a.config.homeDir
+		if home == "" {
+			resolved, err := os.UserHomeDir()
+			if err != nil {
+				a.hookErr = terminal(fmt.Sprintf("resolve home directory for agy native-write hook: %v", err))
+				return
+			}
+			home = resolved
+		}
+		if err := ensureNativeWriteHook(home); err != nil {
+			a.hookErr = terminal(fmt.Sprintf("provision tractor agy native-write hook: %v", err))
+			return
+		}
+	})
+	return a.hookErr
+}
+
+// verifyAgyHookSupport runs `agy --version` (cheap, no model turn) and
+// confirms it meets minSupportedAgyVersion before ensureHook trusts
+// hooks.json to actually gate any tool call. This is the runtime invariant
+// for the hook prevention layer: fail fast with a clear, actionable error
+// naming the check and the fix, rather than writing a hook to hooks.json
+// and silently assuming the installed agy honors it.
+func verifyAgyHookSupport(config runnerConfig) *harness.Error {
+	ctx, cancel := context.WithTimeout(context.Background(), controlTimeout)
+	defer cancel()
+	args := append(append([]string(nil), config.baseArgs...), "--version")
+	cmd := exec.CommandContext(ctx, config.binary, args...)
+	cmd.Env = config.env
+	out, err := cmd.Output()
+	if err != nil {
+		return terminal(fmt.Sprintf(
+			"verify agy version before provisioning the tractor-no-native-write PreToolUse hook: run %q --version: %v; "+
+				"the hook (harness/agy/native_write_hook.go) requires a working agy binary on PATH",
+			config.binary, err,
+		))
+	}
+	version := strings.TrimSpace(string(out))
+	ok, parseErr := agyVersionAtLeast(version, minSupportedAgyVersion)
+	if parseErr != nil {
+		return terminal(fmt.Sprintf(
+			"agy --version reported %q, which harness/agy could not parse as a dotted version to confirm PreToolUse hooks.json support "+
+				"(verified live only from agy %s onward; see harness/agy/native_write_hook.go and ephemeral/worklog/202608191900-agy-artifact-prevention.md). "+
+				"Update agyVersionAtLeast's parser for the new version format, or pin a known-good agy release.",
+			version, minSupportedAgyVersion,
+		))
+	}
+	if !ok {
+		return terminal(fmt.Sprintf(
+			"agy %s is older than %s, the minimum version harness/agy has verified live supports the PreToolUse hooks.json mechanism "+
+				"the tractor-no-native-write hook (harness/agy/native_write_hook.go) depends on; upgrade agy, or re-verify hook support on this "+
+				"version and lower minSupportedAgyVersion. Without a supported hook, only the reactive artifact-path repair-retry protects turns from the artifact-path bug.",
+			version, minSupportedAgyVersion,
+		))
+	}
+	return nil
 }
 
 func (a *Adapter) runForState(state *sessionState, request runRequest) (nativeResult, *activeTurn, *harness.Error) {
@@ -367,6 +508,10 @@ func (a *Adapter) runOnceWithActive(request runRequest, started func(*activeTurn
 	config := a.config
 	stderrWriter := a.stderr
 	a.mu.Unlock()
+
+	if hookErr := a.ensureHook(); hookErr != nil {
+		return nativeResult{}, nil, hookErr
+	}
 
 	args := append([]string(nil), config.baseArgs...)
 	args = append(args, "-p", request.prompt, "--output-format", "stream-json", "--dangerously-skip-permissions", "--add-dir", request.workdir)
@@ -686,12 +831,65 @@ func categorize(err error, wasInterrupted bool) *harness.Error {
 			return retryable(message)
 		}
 	}
-	for _, marker := range []string{"unknown model", "invalid", "not found", "permission", "unauthorized", "unauthenticated", "schema", "different conversation id"} {
+	for _, marker := range []string{"unknown model", "invalid", "not found", "permission", "unauthorized", "unauthenticated", "schema", "different conversation id", "denied by pre-tool hook"} {
 		if strings.Contains(lower, marker) {
 			return terminal(message)
 		}
 	}
 	return retryable(message)
+}
+
+// artifactPathErrorMarker matches agy's own error text when the model's
+// file-write tool call is routed through agy's native artifact tool, which
+// only accepts paths inside its private per-conversation "brain" directory
+// and rejects any path inside the workspace agy was given via --add-dir.
+// This is the fallback signature: the ensureHook-provisioned PreToolUse
+// hook (native_write_hook.go) blocks the tool before agy ever reaches this
+// declare-permissions failure, but the hook itself can only be as reliable
+// as agy's hooks.json support, so this detector stays in place in case the
+// hook is ever bypassed (e.g. a workspace with its own conflicting hook, or
+// a future agy version that stops honoring it).
+const artifactPathErrorMarker = "is not a valid artifact path"
+
+// isArtifactPathError reports whether err is agy's "declaring permissions"
+// failure for a file-write tool call that carried an ArtifactMetadata
+// argument and targeted a path outside its brain directory (agy's own
+// error text), or Tractor's own PreToolUse hook denial of the same class
+// of call (nativeWriteHookMarker, native_write_hook.go). Either way the fix
+// is identical: redo the failed write(s) via a fresh conversation, omitting
+// ArtifactMetadata this time — see artifactWriteRepairPrompt.
+func isArtifactPathError(err *harness.Error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Message, artifactPathErrorMarker) || strings.Contains(err.Message, nativeWriteHookMarker)
+}
+
+// artifactMetadataPromptPreamble is prepended (once, to the original turn
+// prompt only — not to repair or steering prompts) to steer the model away
+// from ever triggering the ArtifactMetadata bug in the first place. This is
+// layer zero of three: a static prompt hint, ahead of the PreToolUse hook
+// (layer one, native_write_hook.go) and the repair-retry below (layer two).
+// It is not a substitute for either: prompting alone is unreliable (the
+// same instruction, given verbatim, still let the model attach
+// ArtifactMetadata to an out-of-workspace write in some live trials — see
+// the worklog), but every hook denial burns a full turn plus a
+// fresh-conversation repair, so a static line that reduces how often that
+// happens is worth the negligible token cost.
+const artifactMetadataPromptPreamble = "When using write_to_file, replace_file_content, or multi_replace_file_content to create or edit files in this workspace, never include an ArtifactMetadata argument. ArtifactMetadata is only for your own internal session-tracking documents inside your private per-conversation directory; attaching it to an ordinary workspace file causes the write to fail.\n\n"
+
+// artifactWriteRepairPrompt asks the model to redo originalPrompt (the
+// turn's real task) in a brand new conversation, appending a corrective
+// note about the exact mechanism that failed: an ArtifactMetadata argument
+// on a call targeting outside the artifact directory. It deliberately does
+// not push the model onto its shell/terminal tool — the empirically
+// verified fix is simpler than that: omit ArtifactMetadata and retry the
+// same native write tool, which agy's own validator then accepts.
+func artifactWriteRepairPrompt(originalPrompt, message string) string {
+	return fmt.Sprintf(
+		"%s\n\n---\nRetry note: a previous attempt at this exact task failed because a file-write tool call (write_to_file, replace_file_content, or multi_replace_file_content) included an ArtifactMetadata argument while targeting a path outside your private per-conversation artifact directory: %s. ArtifactMetadata is only valid for files inside that private directory. If you call one of those tools again for a file in this workspace, omit the ArtifactMetadata argument entirely — do not switch to a different tool for it. Complete the original task above now.",
+		originalPrompt, message,
+	)
 }
 
 func terminal(message string) *harness.Error {

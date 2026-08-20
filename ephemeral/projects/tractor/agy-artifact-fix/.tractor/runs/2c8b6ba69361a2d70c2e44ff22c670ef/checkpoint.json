@@ -1,0 +1,33 @@
+{
+  "timestamp": "2026-08-19T20:02:32.874983Z",
+  "current_node": "evaluate",
+  "next_node": "success",
+  "completed_nodes": [
+    "implement",
+    "evaluate"
+  ],
+  "node_visits": {
+    "evaluate": 1,
+    "implement": 1
+  },
+  "node_attempts": {
+    "evaluate": 1,
+    "implement": 1
+  },
+  "seq": 2,
+  "retry_visit": false,
+  "last_stage": "evaluate",
+  "last_response": "Independent validation passed with no material findings. Recorded evidence supports the root cause for shared and isolated workspaces; implementation-only stashing made the new tests fail, restoration",
+  "sessions": {
+    "\u0000none:evaluate": {
+      "harness": "codex",
+      "session_id": "01a01b98-6e5e-7cd1-b6c6-9681f698b23a",
+      "workdir": "/Users/tyler/src/tractor/.claude/worktrees/jovial-aryabhata-59c086"
+    },
+    "\u0000none:implement": {
+      "harness": "claude",
+      "session_id": "85b59841-1884-4efb-a6db-b45509ccc382",
+      "workdir": "/Users/tyler/src/tractor/.claude/worktrees/jovial-aryabhata-59c086"
+    }
+  }
+}
