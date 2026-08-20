@@ -1,7 +1,7 @@
 {
   "name": "tractor",
   "displayName": "Tractor",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Run and steer Tractor pipelines from Claude Code through MCP.",
   "author": {
     "name": "Tyler Gannon",
