@@ -10,8 +10,8 @@ Gemini CLIs with native sessions — as detached processes that outlive this
 session. A pipeline is a small YAML or JSON file: start from an example and
 change two strings; you rarely author a graph.
 
-MCP tools: `validate_pipeline`, `start_run`, `get_run_status`, `steer_run`,
-`stop_run`, `get_pipeline_schema`. They take file paths, not inline graphs.
+MCP tools: `start_run`, `get_run_status`, `steer_run`, `stop_run`,
+`get_pipeline_schema`. They take file paths, not inline graphs.
 
 ## The whole idea
 
@@ -50,10 +50,10 @@ if neither is at hand, the pipeline above is a complete start.
 1. Copy the chosen example into the target project (a git repo).
 2. Replace its placeholders with the user's goal; command-gated loops also
    need the check node's `tool_command`. Read the file — examples differ.
-3. `validate_pipeline` with the copied file as `pipeline_path` and the repo
-   as `workdir`; fix what it rejects, then `start_run` on the same pair. A
-   fresh run needs an empty or absent `logs_root`; `resume: true` continues
-   an existing run directory.
+3. `start_run` with the copied file as `pipeline_path` and the repo as
+   `workdir` — it lints the graph first and refuses to launch a broken one,
+   so fix what it rejects and call it again. A fresh run needs an empty or
+   absent `logs_root`; `resume: true` continues an existing run directory.
 4. Report the returned `run_id`, process ID, and log paths. Run state lives
    under `~/.local/state/tractor/mcp-runs` and outlives this session and any
    MCP restart — a later session reconnects with the same `run_id`.
@@ -89,6 +89,7 @@ stop; calling it again after the graceful window forces it.
 
 ## Authoring beyond the examples
 
-`get_pipeline_schema` returns the current graph schema, and `validate_pipeline`
-teaches as it rejects. Keep each prompt to the decision its node owns — the
-engine already supplies the goal, the workspace, and the routing choices.
+`get_pipeline_schema` returns the current graph schema, and `start_run`'s
+lint diagnostics teach as they reject. Keep each prompt to the decision its
+node owns — the engine already supplies the goal, the workspace, and the
+routing choices.
