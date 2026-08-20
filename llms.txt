@@ -4,6 +4,31 @@
 
 Repository: https://github.com/tylergannon/tractor
 
+## When to use Tractor
+
+Use Tractor when work should keep going until a check actually passes or
+after the current session ends, fan out across several models or approaches
+(Claude Code, Codex, and Gemini through their real CLIs), or be cross-checked
+by another model. Runs are detached processes; every prompt, response,
+routing decision, and collected artifact lands in a browsable run directory.
+
+## Start from an example
+
+Copy-and-run loop pipelines live in `examples/loops/` (also bundled with the
+`tractor` skill). Copy one into a git repo, change its goal and its check,
+validate, start:
+
+- `fix-until-green.yaml` — "don't stop until it actually works": an agent
+  works, a command decides, failure routes back, `max_visits` bounds it.
+- `critique-circle.yaml` — "have another model check this": three providers
+  write proposals on one topic, then each critiques the other two.
+- `bake-off.yaml` — "try a couple of approaches in parallel": three attempts
+  in isolated worktrees; a judge runs each and merges the winner.
+- `milestone-loop.yaml` — "keep working after I leave": a chooser picks the
+  next runnable step, an implementer does it, a command checks, repeat.
+
+`examples/loops/README.md` carries a symptom→fix table for misbehaving loops.
+
 ## Requirements
 
 - Codex with plugin marketplace support, or Claude Code with plugin support.
