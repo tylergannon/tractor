@@ -28,7 +28,7 @@ import (
 	"github.com/tylergannon/tractor/lint"
 )
 
-const tractorMCPVersion = "0.6.0"
+const tractorMCPVersion = "0.7.0"
 
 const (
 	gracefulRunStopTimeout = 500 * time.Millisecond
@@ -42,16 +42,6 @@ type emptyInput struct{}
 
 type schemaOutput struct {
 	Schema string `json:"schema" jsonschema:"Current Tractor pipeline JSON Schema."`
-}
-
-type pipelineInput struct {
-	PipelinePath string `json:"pipeline_path" jsonschema:"Pipeline JSON, YAML, or YML file. Relative paths resolve from workdir."`
-	Workdir      string `json:"workdir,omitempty" jsonschema:"Pipeline workspace. Defaults to the MCP server working directory."`
-}
-
-type validationOutput struct {
-	Valid    bool     `json:"valid"`
-	Warnings []string `json:"warnings"`
 }
 
 type startRunInput struct {
@@ -146,7 +136,7 @@ func newTractorMCPServer() (*server.MCPServer, *tractorMCPServer, error) {
 	mcpServer := server.NewMCPServer(
 		"tractor",
 		tractorMCPVersion,
-		server.WithInstructions("Use Tractor when work should fan out across several models or approaches, be cross-checked by another model, pass a deterministic verification gate, or keep running after this session ends. Start from a copy-and-run example (examples/loops/ in the Tractor repo; also bundled with the tractor skill) — no pipeline authoring needed. Pipeline definitions are files: validate before starting, and use the returned run_id for later operations. Runs are detached processes that survive this stdio session and can be inspected, steered, or stopped after reconnecting."),
+		server.WithInstructions("Use Tractor when work should fan out across several models or approaches, be cross-checked by another model, pass a deterministic verification gate, or keep running after this session ends. Start from a copy-and-run example (examples/loops/ in the Tractor repo; also bundled with the tractor skill) — no pipeline authoring needed. Pipeline definitions are files: start_run lints the graph first and refuses to launch a broken one, and the returned run_id drives later operations. Runs are detached processes that survive this stdio session and can be inspected, steered, or stopped after reconnecting."),
 		server.WithToolCapabilities(false),
 		server.WithInputSchemaValidation(),
 		server.WithOutputSchemaValidation(),
@@ -161,15 +151,8 @@ func newTractorMCPServer() (*server.MCPServer, *tractorMCPServer, error) {
 		return schemaOutput{Schema: string(graph.Graph{}.Schema())}, nil
 	}))
 
-	mcpServer.AddTool(mcp.NewTool("validate_pipeline",
-		mcp.WithDescription("Parse and validate a pipeline file with Tractor's current graph parser and runtime lint rules. Validate before spending tokens; validation checks structure — it does not prove the pipeline's goal."),
-		mcp.WithInputSchema[pipelineInput](), mcp.WithOutputSchema[validationOutput](),
-		mcp.WithDeferLoading(true), mcp.WithTitleAnnotation("Validate pipeline"),
-		mcp.WithReadOnlyHintAnnotation(true), mcp.WithDestructiveHintAnnotation(false), mcp.WithOpenWorldHintAnnotation(false),
-	), mcp.NewStructuredToolHandler(state.validatePipeline))
-
 	mcpServer.AddTool(mcp.NewTool("start_run",
-		mcp.WithDescription("Start or resume a Tractor pipeline asynchronously and return a run ID immediately. Before starting, make sure the graph ends in a check that fails when the goal is not demonstrated. The run outlives this session; report the run_id to the user."),
+		mcp.WithDescription("Lint and start (or resume) a Tractor pipeline asynchronously and return a run ID immediately; a graph that fails validation is rejected instead of started, with teaching diagnostics. Make sure the graph ends in a check that fails when the goal is not demonstrated. The run outlives this session; report the run_id to the user."),
 		mcp.WithInputSchema[startRunInput](), mcp.WithOutputSchema[startRunOutput](),
 		mcp.WithDeferLoading(true), mcp.WithTitleAnnotation("Start Tractor run"),
 		mcp.WithDestructiveHintAnnotation(true), mcp.WithOpenWorldHintAnnotation(false),
@@ -197,14 +180,6 @@ func newTractorMCPServer() (*server.MCPServer, *tractorMCPServer, error) {
 	), mcp.NewStructuredToolHandler(state.stopRun))
 
 	return mcpServer, state, nil
-}
-
-func (s *tractorMCPServer) validatePipeline(_ context.Context, _ mcp.CallToolRequest, input pipelineInput) (validationOutput, error) {
-	_, warnings, err := loadAndValidatePipeline(input.PipelinePath, input.Workdir)
-	if err != nil {
-		return validationOutput{}, err
-	}
-	return validationOutput{Valid: true, Warnings: warnings}, nil
 }
 
 func (s *tractorMCPServer) startRun(_ context.Context, _ mcp.CallToolRequest, input startRunInput) (startRunOutput, error) {

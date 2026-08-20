@@ -1,6 +1,6 @@
 {
   "name": "tractor",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Run and steer Tractor pipelines from Codex through MCP.",
   "author": {
     "name": "Tyler Gannon",

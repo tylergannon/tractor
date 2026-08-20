@@ -39,7 +39,6 @@ func TestMCPStdioListsCompactToolsAndServesCurrentGraphSchema(t *testing.T) {
 		"start_run",
 		"steer_run",
 		"stop_run",
-		"validate_pipeline",
 	}
 	var gotNames []string
 	wantDestructive := map[string]bool{
@@ -48,7 +47,6 @@ func TestMCPStdioListsCompactToolsAndServesCurrentGraphSchema(t *testing.T) {
 		"start_run":           true,
 		"steer_run":           true,
 		"stop_run":            true,
-		"validate_pipeline":   false,
 	}
 	for _, tool := range listed.Tools {
 		gotNames = append(gotNames, tool.Name)
@@ -99,19 +97,20 @@ func TestMCPStdioStartsAndObservesRealPipelineRun(t *testing.T) {
 	}
 	logsRoot := filepath.Join(workdir, "logs")
 
-	validation, err := callTool(ctx, session, "validate_pipeline",
+	brokenPath := filepath.Join(workdir, "broken.json")
+	if err := os.WriteFile(brokenPath, []byte(`{"start":"missing","nodes":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rejected, err := callTool(ctx, session, "start_run",
 		map[string]any{
-			"pipeline_path": pipelinePath,
+			"pipeline_path": brokenPath,
 			"workdir":       workdir,
 		})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if validation.IsError {
-		t.Fatalf("validate_pipeline returned an error: %#v", validation.Content)
-	}
-	if output := decodeStructured[validationOutput](t, validation.StructuredContent); !output.Valid {
-		t.Fatal("validate_pipeline did not report valid")
+	if !rejected.IsError {
+		t.Fatal("start_run launched a pipeline that fails validation")
 	}
 
 	started, err := callTool(ctx, session, "start_run",

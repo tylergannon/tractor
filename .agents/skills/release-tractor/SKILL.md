@@ -61,8 +61,9 @@ codex plugin add tractor@tractor --json
 4. Verify `codex plugin list` reports `tractor@tractor` installed and enabled
    at the exact manifest version.
 5. Start a fresh Codex process and exercise the installed marketplace copy. At
-   minimum, call Tractor's deferred `validate_pipeline` MCP tool with a valid
-   pipeline; use stronger live run proof when runtime behavior changed.
+   minimum, call Tractor's deferred `get_pipeline_schema` MCP tool, or run a
+   token-free example (`examples/yaml/multiline-tool.yaml`) through the
+   installed binary; use stronger live run proof when runtime behavior changed.
 6. Verify the remote tag, merge commit, clean synchronized root checkout, and
    installed plugin version before declaring the release complete.
 

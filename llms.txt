@@ -15,8 +15,8 @@ routing decision, and collected artifact lands in a browsable run directory.
 ## Start from an example
 
 Copy-and-run loop pipelines live in `examples/loops/` (also bundled with the
-`tractor` skill). Copy one into a git repo, change its goal and its check,
-validate, start:
+`tractor` skill). Copy one into a git repo, change its goal and its check, start it —
+`start_run` lints before launching:
 
 - `fix-until-green.yaml` — "don't stop until it actually works": an agent
   works, a command decides, failure routes back, `max_visits` bounds it.
@@ -73,14 +73,13 @@ The server uses `github.com/mark3labs/mcp-go`. All tools are deferred, so their 
 
 ## Tools
 
-- `validate_pipeline`: validate a JSON, YAML, or YML pipeline file.
-- `start_run`: start or resume a validated pipeline and return its run ID, process ID, and log paths.
+- `start_run`: lint and start (or resume) a pipeline in one call, returning its run ID, process ID, and log paths; a graph that fails validation is rejected instead of started.
 - `get_run_status`: inspect a run by run ID.
 - `steer_run`: send text to the run's active steerable turn; when none is active it returns `accepted: false` and HTTP status 409.
 - `stop_run`: request that a run stop; repeating the call after the graceful window escalates to a forced stop.
 - `get_pipeline_schema`: return Tractor's current graph JSON Schema on demand.
 
-`validate_pipeline` accepts `pipeline_path` and an optional `workdir`. `start_run` also accepts an optional `logs_root` and `resume`. A new run requires an empty or absent `logs_root`; use `resume: true` to continue from an existing run directory. Later operations use the `run_id` returned by `start_run`.
+`start_run` accepts `pipeline_path`, an optional `workdir`, an optional `logs_root`, and `resume`. Validation happens inside the call — the graph parser and lint rules run first, and a failing graph is rejected with diagnostics instead of started. A new run requires an empty or absent `logs_root`; use `resume: true` to continue from an existing run directory. Later operations use the `run_id` returned by `start_run`.
 
 Each run is a detached Tractor process with atomic state under
 `~/.local/state/tractor/mcp-runs`. It survives MCP and Codex restarts. A later
