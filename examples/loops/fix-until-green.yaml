@@ -1,0 +1,29 @@
+name: fix-until-green
+goal: Create hello.sh in the workspace so that running `sh hello.sh` prints exactly HELLO_LOOPS.
+start: implement
+
+defaults:
+  timeout: 300s
+  fidelity: none
+  max_retries: 1
+  llm_provider: anthropic
+  llm_model: claude-sonnet-5
+  reasoning_effort: low
+
+# The smallest loop: an agent works, a command decides, failure routes back.
+# To adapt: change the goal and the check's tool_command. Nothing else.
+nodes:
+  - id: implement
+    type: codergen
+    max_visits: 5
+    prompt: >
+      Work toward the goal. Make the smallest change that could satisfy the
+      check, then route onward.
+    edges:
+      - to: check
+
+  - id: check
+    type: tool
+    tool_command: test "$(sh hello.sh)" = HELLO_LOOPS
+    on_success: success
+    on_error: implement

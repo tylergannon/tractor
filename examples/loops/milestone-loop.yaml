@@ -1,0 +1,57 @@
+name: milestone-loop
+goal: >
+  Build calc.sh in this workspace until both claims are demonstrable:
+  `sh calc.sh add 2 3` prints 5, and `sh calc.sh mul 2 3` prints 6.
+start: pick
+
+defaults:
+  timeout: 300s
+  fidelity: none
+  max_retries: 1
+  llm_provider: anthropic
+  llm_model: claude-sonnet-5
+  reasoning_effort: low
+
+# The shape for "keep working until it's actually done": one node picks the
+# next bite-sized step, one does it, a command checks, repeat. The chooser
+# looks at the repository as it is NOW each lap — no upfront plan to go
+# stale. To adapt: change the goal and the check's tool_command.
+#
+# Plan-first variant: add a planner codergen before pick that writes the
+# ordered steps to plan.md, when you want to read the plan before the
+# tokens burn.
+nodes:
+  - id: pick
+    type: codergen
+    max_visits: 8
+    prompt: >
+      Look at the goal and the workspace as it is now. Name the single
+      smallest next step that moves the goal closer AND ends in something
+      you can run to demonstrate it — never a stack-order plan where
+      nothing runs until the end. If every claim in the goal is already
+      demonstrable, route to success. Hand the step to the implementer by
+      writing it as the only content of STEP.md.
+    edges:
+      - to: implement
+        condition: There is a next step to take.
+      - to: success
+        condition: Every claim in the goal is demonstrable now.
+
+  - id: implement
+    type: codergen
+    max_visits: 8
+    prompt: >
+      Read STEP.md and do that step, including running whatever demonstrates
+      it. Make the smallest complete change; then route onward.
+    edges:
+      - to: check
+
+  - id: check
+    type: tool
+    max_visits: 16
+    tool_command: |
+      set -eu
+      test "$(sh calc.sh add 2 3)" = 5
+      test "$(sh calc.sh mul 2 3)" = 6
+    on_success: success
+    on_error: pick

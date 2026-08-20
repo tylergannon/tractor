@@ -16,5 +16,8 @@ spend tokens on a substantial coding task.
 - [`supervisor/live-steering.json`](supervisor/live-steering.json) proves that
   a Claude supervisor patrol can steer a live Codex worker and cause an
   independently verified workspace effect.
+- [`loops/`](loops/README.md) are the starting points for iterative work:
+  fix-until-green, critique circle, bake-off, and a milestone loop. Copy
+  one, change the goal and the check, run it.
 
 Each directory documents the invocation and the observable success criteria.
