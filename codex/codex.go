@@ -1,11 +1,12 @@
 // Package codex is Gimble's HarnessAdapter for Codex, through `codex
-// app-server`. The adapter attaches to the one shared app-server daemon
-// already running on the machine: it never launches its own app-server
-// process, and it never stops or restarts the daemon, because other
-// clients (Codex Desktop included) share it. A thread lives in the daemon
-// until the session's scope ends, when Close archives it: an archived
-// thread is unloaded, and its MCP child processes and file descriptors
-// are released from the shared daemon.
+// app-server`. The adapter attaches to the machine's one shared app-server
+// daemon, starting it on first use if none is running. It never launches a
+// private app-server process, and it never stops or restarts the daemon,
+// because other clients (Codex Desktop included) share it. A thread lives
+// in the daemon until the session's scope ends, when Close archives it: an
+// archived thread is unloaded, and its MCP child processes and file
+// descriptors are released from the shared daemon. An archived thread
+// cannot be used again through the adapter; see callThread for why.
 package codex
 
 import (
