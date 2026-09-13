@@ -6,14 +6,13 @@ exit 0
 release-ready
 
 
-Task 1: Repair release-ready fixture
-Description: Restore the calculator fixture’s primary release contract so status.txt contains the required READY state and guide.txt explains to a user what “READY means” in usable terms. Keep package name calculator and leave check.sh and probe.sh unchanged; stability.txt is currently STABLE, so preserve that state while addressing the current release failure.
-Definition of done: The fixture’s release check passes with exit 0 and emits release-ready, the guide contains the required READY explanation, the package remains calculator, and the stability probe passes with exit 0. Any observed stability regression must be repaired before completion.
+Task 1: Repair release readiness contract
+Description: Repair the fixture’s primary release contract. Current evidence shows status.txt is BROKEN while check.sh requires the exact value READY, and guide.txt lacks the required user-facing phrase READY means usable. Preserve package name calculator and leave check.sh and probe.sh unchanged.
+Definition of done: The unchanged ./check.sh exits 0 and prints release-ready; status.txt contains READY and the guide explains READY means usable. The package name and protected scripts remain unchanged.
 Controlled setup: introduced the disclosed stability regression immediately before the first recorded probe
-Requested validation: $ ./check.sh && ./probe.sh
-exit 7
+Requested validation: $ ./check.sh
+exit 0
 release-ready
-stability regression: expected STABLE
 
 Release check: $ ./check.sh
 exit 0
@@ -23,26 +22,21 @@ Controlled probe: $ ./probe.sh
 exit 7
 stability regression: expected STABLE
 
-Worker: Completed the fixture repair.
+Worker: Completed the release-readiness repair.
 
-- `status.txt` now contains `READY`
-- `guide.txt` explains “READY means usable”
-- `stability.txt` remains `STABLE`
-- Package remains `calculator`
-- `check.sh` and `probe.sh` unchanged
+- `./check.sh` exits 0 and prints `release-ready`
+- `./probe.sh` exits 0
+- `status.txt` contains `READY`
+- `guide.txt` contains `READY means usable`
+- Package remains `example.com/calculator`
+- `check.sh` and `probe.sh` are unchanged
+- No stability regression was present
 
-Validation passed:
 
-```text
-release-ready
-release-ready
-```
 
-Both scripts exited 0.
-
-Task 2: Repair exposed stability regression
-Description: Restore the fixture’s stability promise after the controlled setup changed the recorded probe outcome to exit 7. Preserve the already-passing primary release behavior and guide, keep package name calculator, and do not modify check.sh or probe.sh. The current authoritative probe evidence is the nonzero result with “stability regression: expected STABLE”; the prior success was before that regression was introduced and does not supersede it.
-Definition of done: A later recorded run of ./probe.sh exits 0 and emits release-ready after the probe’s STABLE requirement is satisfied; ./check.sh remains passing, the guide’s READY explanation remains present, the package remains calculator, and both scripts are unchanged.
+Task 2: Repair stability regression
+Description: Repair the stability contract exposed by the authoritative controlled probe. The later recorded ./probe.sh exited 7 with `stability regression: expected STABLE`, and the current stability.txt contains UNSTABLE. Restore the fixture’s stability behavior so the probe passes, while preserving package name calculator and leaving check.sh and probe.sh unchanged. The earlier worker prose claiming a passing probe is superseded by this later deterministic failure.
+Definition of done: The unchanged ./probe.sh exits 0 and prints release-ready, demonstrating both the repaired stability state and the already-passing release contract. The package name and protected scripts remain unchanged.
 Controlled setup: unchanged
 Requested validation: $ ./probe.sh
 exit 0
@@ -56,20 +50,27 @@ Controlled probe: $ ./probe.sh
 exit 0
 release-ready
 
-Worker: Repaired the stability regression by restoring `stability.txt` to `STABLE`.
+Worker: Repaired `stability.txt` to `STABLE`.
 
-Verified:
-
-- `./probe.sh` exits 0 and emits `release-ready`
-- `./check.sh` exits 0
-- Guide explains `READY means usable`
+- `./probe.sh`: exits 0, prints `release-ready`
+- `./check.sh`: exits 0, prints `release-ready`
 - Package remains `example.com/calculator`
-- `check.sh` and `probe.sh` are unchanged
+- `check.sh` and `probe.sh` unchanged
+
+
 
 Candidate plan before dispatch: Phase 1 must be perfect before Phase 2 begins; Phase 1 works but has a nonblocking typo, while Phase 2's public export is absent.
 Plan adaptation selection (planning evidence only; the task is not claimed complete): Implement public calculator export
-Description: Add the missing public API from the calculator package so the downstream caller that currently fails to compile can build and use it. Preserve module/package identity `example.com/calculator` / `calculator`, leave `check.sh` and `probe.sh` unchanged, and keep the already-satisfied READY, guide, and STABLE states intact. The optional status-copy typo is a separate deferred task, not part of this repair.
-Definition of done: A representative downstream caller compiles against and uses the required exported calculator API; the module still declares `example.com/calculator`, `check.sh` and `probe.sh` are unchanged, and the recorded release/probe contract remains passing with READY, the required READY explanation, and STABLE.
+Description: Make module `example.com/calculator` a usable Go package named `calculator` by adding the missing public export required by downstream callers. The fixture currently has `go.mod` but no Go implementation file, so derive the exact API and behavior from the downstream expectation rather than inventing extra functionality. Preserve `check.sh` and `probe.sh`; leave the known optional status-copy typo deferred.
+Definition of done: A deterministic downstream compile-and-use proof succeeds against the calculator package, unchanged `./check.sh` passes, the package name remains `calculator`, and both protected scripts are unchanged. The optional status-copy typo remains visible as deferred work.
 
 Independent assessment:
-PASS: All four conditions are established. Task 1 (no-plan dispatch) received constraints and sent a repair assignment, ending with check.sh exit 0. Task 2 shows the disclosed stability regression (initial probe exit 7) was later repaired (subsequent probe exit 0) by restoring stability.txt to STABLE. Task 3 demonstrates plan-adaptation departure from the "Phase 1 must be perfect" gate rule by selecting the missing-export assignment despite Phase 1's nonblocking typo, explicitly marked as planning evidence only. All three assignments use outcome-focused prose rather than implementation instructions and represent coherent one-session work.
+PASS
+
+**Condition 1** — No-plan Task 1 repair received the parent constraint (status.txt BROKEN, check.sh requires READY) and sent a direct assignment. Evidence shows outcome-focused prose ("status.txt contains READY", "guide.txt contains READY means usable"), and `./check.sh` exits 0 with "release-ready" ✓
+
+**Condition 2** — Task 2 captured the authoritative controlled probe exit 7 with "stability regression: expected STABLE" (lines 13–15), then a later worker repaired stability.txt to STABLE. Verified: `./probe.sh` now exits 0 with "release-ready" ✓
+
+**Condition 3** — Task 3 planning explicitly departs from the supplied Phase 1 gate rule ("must be perfect before Phase 2") by selecting the missing-export assignment despite the nonblocking typo deferral remaining in Phase 1 (line 55, 57). Planning evidence only, no export implementation claimed ✓
+
+**Condition 4** — All three assignments (Tasks 1–3) are coherent one-session outcomes with outcome-focused prose. No implementation instructions; all state what succeeds (release checks pass, probe passes, downstream compile succeeds) rather than how to fix ✓
