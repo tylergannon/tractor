@@ -37,6 +37,8 @@ func (*issue131Adapter) Fork(_ context.Context, session string) (string, error) 
 	return session + "-fork", nil
 }
 
+func (*issue131Adapter) Close(context.Context, string) error { return nil }
+
 func issue131Run(t *testing.T, project, name string, body func(context.Context, *run) error) (*run, error) {
 	t.Helper()
 	var got *run

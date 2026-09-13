@@ -22,12 +22,20 @@ import (
 // fake is a HarnessAdapter whose turns are answered by a function.
 type fake struct {
 	answer func(ctx context.Context, session, prompt string, schema json.RawMessage, emit func(AgentEvent) error) (string, error)
-	report map[string]Usage // the harness's own turn report, when this fake states one
+	// closeErr, when set, is called for every Close and its result returned.
+	// A nil closeErr makes every Close succeed.
+	closeErr func(session string) error
+	// onClose, when set, is called with the ctx and session id of every
+	// Close call, before closeErr; it lets a test inspect that ctx (for
+	// example, that it is not already cancelled).
+	onClose func(ctx context.Context, session string)
+	report  map[string]Usage // the harness's own turn report, when this fake states one
 
 	mu      sync.Mutex
 	made    int
 	steers  []string
 	running map[string]func(AgentEvent) error
+	closed  []string
 }
 
 func (f *fake) CreateSession(ctx context.Context, model, workdir string) (string, error) {
@@ -71,6 +79,21 @@ func (f *fake) Steer(ctx context.Context, session, message string) error {
 
 func (f *fake) Fork(ctx context.Context, session string) (string, error) {
 	return session + "-fork", nil
+}
+
+func (f *fake) Close(ctx context.Context, session string) error {
+	f.mu.Lock()
+	f.closed = append(f.closed, session)
+	fn := f.closeErr
+	hook := f.onClose
+	f.mu.Unlock()
+	if hook != nil {
+		hook(ctx, session)
+	}
+	if fn != nil {
+		return fn(session)
+	}
+	return nil
 }
 
 func runTest(t *testing.T, body func(ctx context.Context) error) error {

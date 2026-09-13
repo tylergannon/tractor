@@ -12,6 +12,7 @@ ignore ./ephemeral/inspiration
 ignore ./third_party/opencode/oracle/upstream
 
 require (
+	github.com/coder/websocket v1.8.13
 	github.com/roasbeef/claude-agent-sdk-go v1.1.1-0.20260713164230-efdbecd88a98
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/tylergannon/polytype v1.0.0-rc.12.0.20260911210434-38f05b1ba899

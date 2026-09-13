@@ -95,8 +95,12 @@ type SessionCreated struct {
 
 func (SessionCreated) lifecycleEvent() {}
 
-// SessionClosed records that a scope closed one of its sessions.
-type SessionClosed struct{}
+// SessionClosed records that a scope closed one of its sessions. Error is
+// set when the session had a native id and the adapter's Close failed;
+// a session that never allocated a native id is always closed cleanly.
+type SessionClosed struct {
+	Error string `json:"error"`
+}
 
 func (SessionClosed) lifecycleEvent() {}
 

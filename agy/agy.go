@@ -187,6 +187,14 @@ func (a *adapter) Fork(ctx context.Context, sessionID string) (string, error) {
 	return "", errors.New("agy: fork is unavailable in print mode")
 }
 
+// Close forgets sessionID. Idempotent: an unknown id returns nil.
+func (a *adapter) Close(ctx context.Context, sessionID string) error {
+	a.mu.Lock()
+	delete(a.sessions, sessionID)
+	a.mu.Unlock()
+	return nil
+}
+
 func (a *adapter) session(id string) (*session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

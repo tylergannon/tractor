@@ -85,6 +85,7 @@ func (*deterministicAdapter) Steer(context.Context, string, string) error { retu
 func (*deterministicAdapter) Fork(_ context.Context, id string) (string, error) {
 	return id + "-fork", nil
 }
+func (*deterministicAdapter) Close(context.Context, string) error { return nil }
 
 func waitFile(ctx context.Context, path string) error {
 	for {

@@ -203,6 +203,16 @@ func (a *adapter) Interrupt(ctx context.Context, sessionID string) error {
 	return err
 }
 
+// Close forgets sessionID. Claude Code's own process is already gone by
+// the time Close runs: RunTurn's process is scoped to one turn, not the
+// session. Idempotent: an unknown id returns nil.
+func (a *adapter) Close(ctx context.Context, sessionID string) error {
+	a.mu.Lock()
+	delete(a.sessions, sessionID)
+	a.mu.Unlock()
+	return nil
+}
+
 func (a *adapter) session(id string) (*session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()

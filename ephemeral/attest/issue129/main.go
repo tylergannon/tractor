@@ -84,6 +84,10 @@ func (a *noisyWorker) Fork(ctx context.Context, sessionID string) (string, error
 	return a.inner.Fork(ctx, sessionID)
 }
 
+func (a *noisyWorker) Close(ctx context.Context, sessionID string) error {
+	return a.inner.Close(ctx, sessionID)
+}
+
 type measuredReviewer struct {
 	inner     gimble.HarnessAdapter
 	maxPrompt atomic.Int64
@@ -113,6 +117,10 @@ func (a *measuredReviewer) Steer(ctx context.Context, sessionID, message string)
 
 func (a *measuredReviewer) Fork(ctx context.Context, sessionID string) (string, error) {
 	return a.inner.Fork(ctx, sessionID)
+}
+
+func (a *measuredReviewer) Close(ctx context.Context, sessionID string) error {
+	return a.inner.Close(ctx, sessionID)
 }
 
 func main() {

@@ -31,6 +31,7 @@ func (a *taskAdapter) RunTurn(_ context.Context, _ string, prompt string, schema
 
 func (*taskAdapter) Steer(context.Context, string, string) error  { return nil }
 func (*taskAdapter) Fork(context.Context, string) (string, error) { return "fork", nil }
+func (*taskAdapter) Close(context.Context, string) error          { return nil }
 
 func TestRunTaskAssessesDefinitionOfDoneWithoutValidationRecipe(t *testing.T) {
 	repo := t.TempDir()

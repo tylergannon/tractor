@@ -10,7 +10,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
+
+// closeTimeout bounds one adapter's Close call, on a context independent of
+// the run's own ctx so a cancelled run still releases everything it holds.
+const closeTimeout = 10 * time.Second
 
 // Output is what polytype generates, and what Generate and SetJSON require.
 type Output interface {
@@ -82,7 +87,15 @@ func (s *scope) do(ctx context.Context, body func(context.Context) error) error 
 	return err
 }
 
-// end closes the scope's sessions, then cancels its ctx.
+// end closes the scope's sessions, then cancels its ctx. Each session is
+// marked closed before its adapter is asked to release it, so no Generate
+// can enter while cleanup runs. A session with no native id had nothing
+// allocated by its adapter and gets no Close call, only its SessionClosed
+// event. Close runs on a timeout ctx independent of the run's own, so a
+// cancelled run still releases every native session. A Close failure never
+// changes the scope's own result (recorded on SessionClosed and folded into
+// this run's aggregate close error instead); Run joins that aggregate into
+// its returned error once the root scope has ended.
 func (s *scope) end(cancel context.CancelFunc) {
 	s.mu.Lock()
 	s.ended = true
@@ -91,15 +104,27 @@ func (s *scope) end(cancel context.CancelFunc) {
 	for _, session := range sessions {
 		session.mu.Lock()
 		session.closed = true
+		native := session.native
 		session.mu.Unlock()
-		s.run.event(s.key, session.id, "", SessionClosed{})
+		var closeErr error
+		if native != "" {
+			closeCtx, cancel := context.WithTimeout(context.Background(), closeTimeout)
+			closeErr = session.adapter.Close(closeCtx, native)
+			cancel()
+			if closeErr != nil {
+				s.run.recordCloseFailure(session.id, closeErr)
+			}
+		}
+		s.run.event(s.key, session.id, "", SessionClosed{Error: errString(closeErr)})
 	}
 	cancel()
 }
 
 // Scope runs body in a child scope named name, and returns its error. The
-// scope ends when body returns: its sessions are closed, then its ctx is
-// cancelled.
+// scope ends when body returns: each session it created is closed through
+// its adapter's Close, then its ctx is cancelled. A Close failure is
+// recorded, not returned here: it never enters this function's error and
+// instead surfaces from the run's own aggregate cleanup error.
 func Scope(ctx context.Context, name string, body func(ctx context.Context) error) error {
 	parent, err := current(ctx)
 	if err != nil {

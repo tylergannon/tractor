@@ -1,36 +1,44 @@
 package codex
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
+	"net"
+	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
-// connection is one `codex app-server` process, spoken to in JSON-RPC over
-// stdio.
+// readLimit is generous because a turn can stream large frames (command
+// output, big diffs).
+const readLimit = 64 << 20
+
+// connection is one WebSocket connection to the machine's shared `codex
+// app-server` daemon, spoken to in JSON-RPC. Every session and turn shares
+// it: the daemon, not this process, keeps the threads loaded.
 type connection struct {
-	cmd       *exec.Cmd
-	stdin     io.WriteCloser
-	stderr    *lockedBuffer
-	nextID    atomic.Int64
-	writeMu   sync.Mutex
-	pendMu    sync.Mutex
-	pending   map[int64]chan rpcMessage
-	messages  chan rpcMessage
-	readDone  chan struct{}
-	readOnce  sync.Once
-	readErr   error
-	waitDone  chan struct{}
-	closeOnce sync.Once
+	ws     *websocket.Conn
+	nextID atomic.Int64
+
+	writeMu sync.Mutex
+
+	pendMu  sync.Mutex
+	pending map[int64]chan rpcMessage
+
+	threadsMu sync.Mutex
+	threads   map[string]chan rpcMessage
+
+	readDone chan struct{}
+	readOnce sync.Once
+	readErr  error
 }
 
 type rpcMessage struct {
@@ -50,54 +58,67 @@ func (e *rpcError) Error() string {
 	return fmt.Sprintf("codex app-server error %d: %s", e.Code, e.Message)
 }
 
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+// daemonVersion is `codex app-server daemon version`'s JSON.
+type daemonVersion struct {
+	Status     string `json:"status"`
+	SocketPath string `json:"socketPath"`
 }
 
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
-}
+// errDaemonNotRunning is connect's answer when the daemon is down and the
+// caller did not ask to start it.
+var errDaemonNotRunning = errors.New("codex: app-server daemon is not running")
 
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
-// start launches an app-server and initializes it.
-func start(ctx context.Context) (*connection, error) {
-	cmd := exec.Command("codex", "app-server", "--stdio")
-	stdin, err := cmd.StdinPipe()
+// connect finds the machine's shared app-server daemon, dials its socket,
+// and completes the JSON-RPC handshake. With startDaemon it starts the
+// daemon if none is running; without it, a stopped daemon is
+// errDaemonNotRunning. It never stops or restarts the daemon: other clients
+// (Codex Desktop included) share it.
+func connect(ctx context.Context, startDaemon bool) (*connection, error) {
+	socketPath, running, err := daemonStatus(ctx)
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	if !running {
+		if !startDaemon {
+			return nil, errDaemonNotRunning
+		}
+		if _, err := runCodex(ctx, "app-server", "daemon", "start"); err != nil {
+			return nil, fmt.Errorf("codex: start app-server daemon: %w", err)
+		}
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			socketPath, running, err = daemonStatus(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if running {
+				break
+			}
+			if time.Now().After(deadline) {
+				return nil, fmt.Errorf("codex: app-server daemon did not come up within 10s")
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+
+	client := &http.Client{Transport: &http.Transport{
+		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
+		},
+	}}
+	ws, _, err := websocket.Dial(ctx, "ws://localhost/", &websocket.DialOptions{HTTPClient: client})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("codex: dial app-server daemon at %s: %w", socketPath, err)
 	}
-	stderr := &lockedBuffer{}
-	cmd.Stderr = stderr
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("codex: start app-server: %w", err)
-	}
+	ws.SetReadLimit(readLimit)
+
 	c := &connection{
-		cmd:      cmd,
-		stdin:    stdin,
-		stderr:   stderr,
+		ws:       ws,
 		pending:  make(map[int64]chan rpcMessage),
-		messages: make(chan rpcMessage, 512),
+		threads:  make(map[string]chan rpcMessage),
 		readDone: make(chan struct{}),
-		waitDone: make(chan struct{}),
 	}
-	go c.read(stdout)
-	go func() {
-		err := cmd.Wait()
-		close(c.waitDone)
-		c.finishRead(err)
-	}()
+	go c.read()
 
 	initCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
@@ -109,32 +130,78 @@ func start(ctx context.Context) (*connection, error) {
 		err = c.send(map[string]any{"method": "initialized", "params": map[string]any{}})
 	}
 	if err != nil {
-		c.close()
+		ws.CloseNow()
 		return nil, err
 	}
 	return c, nil
 }
 
-func (c *connection) read(stdout io.Reader) {
-	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 64*1024), 64*1024*1024)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
-			continue
+// daemonStatus runs `codex app-server daemon version` and reports the
+// socket to dial and whether the daemon is up.
+func daemonStatus(ctx context.Context) (socketPath string, running bool, err error) {
+	out, err := runCodex(ctx, "app-server", "daemon", "version")
+	if err != nil {
+		return "", false, fmt.Errorf("codex: app-server daemon version: %w", err)
+	}
+	var v daemonVersion
+	if err := json.Unmarshal(out, &v); err != nil {
+		return "", false, fmt.Errorf("codex: decode daemon version: %w", err)
+	}
+	if v.SocketPath == "" {
+		return "", false, fmt.Errorf("codex: daemon version has no socketPath: %s", strings.TrimSpace(string(out)))
+	}
+	return v.SocketPath, v.Status == "running" || v.Status == "alreadyRunning", nil
+}
+
+func runCodex(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "codex", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return nil, err
+	}
+	return out, nil
+}
+
+// registerThread opens routing for threadID's notifications and server
+// requests. Call it once the thread is known, before waiting on its turns.
+func (c *connection) registerThread(threadID string) chan rpcMessage {
+	c.threadsMu.Lock()
+	defer c.threadsMu.Unlock()
+	if ch, ok := c.threads[threadID]; ok {
+		return ch
+	}
+	ch := make(chan rpcMessage, 512)
+	c.threads[threadID] = ch
+	return ch
+}
+
+// unregisterThread stops routing threadID's notifications and server
+// requests to this connection. It is the counterpart to registerThread,
+// called from Close; it does not itself tell the daemon anything, that is
+// thread/archive's job.
+func (c *connection) unregisterThread(threadID string) {
+	c.threadsMu.Lock()
+	defer c.threadsMu.Unlock()
+	delete(c.threads, threadID)
+}
+
+func (c *connection) read() {
+	for {
+		_, data, err := c.ws.Read(context.Background())
+		if err != nil {
+			c.finishRead(err)
+			return
 		}
 		var message rpcMessage
-		if err := json.Unmarshal(line, &message); err != nil {
+		if err := json.Unmarshal(data, &message); err != nil {
 			c.finishRead(fmt.Errorf("codex: decode app-server message: %w", err))
 			return
 		}
 		c.dispatch(message)
 	}
-	if err := scanner.Err(); err != nil {
-		c.finishRead(err)
-		return
-	}
-	c.finishRead(io.EOF)
 }
 
 func (c *connection) finishRead(err error) {
@@ -144,7 +211,10 @@ func (c *connection) finishRead(err error) {
 	})
 }
 
-// dispatch routes a response to its caller and everything else to next.
+// dispatch routes a response to its caller by id. Everything else carries a
+// threadId and is routed to that thread's channel; a message for a thread
+// this connection has not registered (another client's thread, sharing the
+// same daemon) is dropped.
 func (c *connection) dispatch(message rpcMessage) {
 	if len(message.ID) > 0 && message.Method == "" {
 		if id, ok := parseID(message.ID); ok {
@@ -157,10 +227,30 @@ func (c *connection) dispatch(message rpcMessage) {
 			}
 		}
 	}
+	threadID := messageThreadID(message.Params)
+	if threadID == "" {
+		return
+	}
+	c.threadsMu.Lock()
+	ch := c.threads[threadID]
+	c.threadsMu.Unlock()
+	if ch == nil {
+		return
+	}
 	select {
-	case c.messages <- message:
+	case ch <- message:
 	case <-c.readDone:
 	}
+}
+
+func messageThreadID(raw json.RawMessage) string {
+	var envelope struct {
+		ThreadID string `json:"threadId"`
+	}
+	if json.Unmarshal(raw, &envelope) != nil {
+		return ""
+	}
+	return envelope.ThreadID
 }
 
 func (c *connection) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -201,19 +291,13 @@ func (c *connection) send(value any) error {
 	}
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
-	_, err = c.stdin.Write(append(encoded, '\n'))
-	return err
+	return c.ws.Write(context.Background(), websocket.MessageText, encoded)
 }
 
-// next returns the next notification or server request.
-func (c *connection) next(ctx context.Context) (rpcMessage, error) {
+// next returns the next notification or server request for threadID.
+func (c *connection) next(ctx context.Context, ch chan rpcMessage) (rpcMessage, error) {
 	select {
-	case message := <-c.messages:
-		return message, nil
-	default:
-	}
-	select {
-	case message := <-c.messages:
+	case message := <-ch:
 		return message, nil
 	case <-c.readDone:
 		return rpcMessage{}, c.exitError()
@@ -223,22 +307,18 @@ func (c *connection) next(ctx context.Context) (rpcMessage, error) {
 }
 
 func (c *connection) exitError() error {
-	if stderr := strings.TrimSpace(c.stderr.String()); stderr != "" {
-		return fmt.Errorf("codex app-server exited: %s: %w", stderr, c.readErr)
-	}
-	return fmt.Errorf("codex app-server exited: %w", c.readErr)
+	return fmt.Errorf("codex: app-server connection closed: %w", c.readErr)
 }
 
-func (c *connection) close() {
-	c.closeOnce.Do(func() {
-		_ = c.stdin.Close()
-		select {
-		case <-c.waitDone:
-		case <-time.After(2 * time.Second):
-			_ = c.cmd.Process.Kill()
-			<-c.waitDone
-		}
-	})
+// dead reports whether the connection's reader has already failed: the
+// daemon socket is gone, so a fresh dial is needed.
+func (c *connection) dead() bool {
+	select {
+	case <-c.readDone:
+		return true
+	default:
+		return false
+	}
 }
 
 func parseID(raw json.RawMessage) (int64, bool) {

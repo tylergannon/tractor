@@ -1,0 +1,305 @@
+Proof for issue #143 (commit 2 of 2, fixing round-01 review findings): the
+codex adapter attaches to the machine's one shared `codex app-server`
+daemon, reuses one WebSocket connection across every session and turn, and
+recovers from a dead connection by resuming every thread it knows about
+before handing the new connection to any caller.
+
+Model used: gpt-5.6-luna (Codex), the cheapest Codex model, for every turn
+in both the attest program and the live test below.
+
+## Finding 1 fix: a redialed connection now re-subscribes existing threads
+
+`adapter.conn` (codex/codex.go) now calls a new `resumeThreads` before
+handing out a freshly dialed connection: for every session the adapter
+knows about, it sends `thread/resume` with the same params the old
+per-process adapter used (`threadId`, `cwd`, `approvalPolicy: "never"`,
+`sandbox: "danger-full-access"`), checks the returned thread id matches,
+and registers the thread for routing on the new connection. If any resume
+fails, `conn(ctx)` returns that error rather than handing back a
+half-subscribed connection. `turn/start` alone was never enough: only
+`thread/start`, `thread/fork`, and `thread/resume` add the calling
+connection to a thread's subscriber set in the daemon.
+
+### Live proof, without restarting the daemon
+
+`codex/daemon_live_test.go` (`TestRunTurnAfterRedialResumesThread`, skipped
+unless `GIMBLE_LIVE=1`) creates a session, runs a turn, forcibly closes the
+adapter's current WebSocket from inside the test (`conn.ws.CloseNow()`,
+reached directly since the test is in package `codex`), waits for the
+reader to notice, then runs a second turn on the same session inside a
+bounded 60s context. Before the fix this hangs until the context expires
+(`turn/start` succeeds, but nothing routes its notifications); after the
+fix it passes well within the bound.
+
+Run with:
+
+    GIMBLE_LIVE=1 go test ./codex -run TestRunTurnAfterRedialResumesThread -v
+
+Passing output:
+
+    === RUN   TestRunTurnAfterRedialResumesThread
+    2026/09/12 21:30:47 gimble: run 20260912-213047.daemon-live started in /var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/TestRunTurnAfterRedialResumesThread3418039722/001/runs/20260912-213047.daemon-live
+    2026/09/12 21:30:48 gimble: live.1: turn started (gpt-5.6-luna)
+    2026/09/12 21:30:51 gimble: live.1: turn ended after 3s: ok
+    2026/09/12 21:30:51 gimble: live.1: turn started (gpt-5.6-luna)
+    2026/09/12 21:30:53 gimble: live.1: turn ended after 3s: ok
+    2026/09/12 21:30:53 gimble: run 20260912-213047.daemon-live ended: ok
+    --- PASS: TestRunTurnAfterRedialResumesThread (6.07s)
+    PASS
+    ok  	github.com/tylergannon/gimble/codex	6.294s
+
+`pgrep -f 'app-server --listen unix'` returned the same two pids (the
+managed daemon and its launch wrapper) before and after this run: the test
+kills only the adapter's client-side WebSocket, never the daemon.
+
+## Finding 2 fix: the attest program now exercises the reuse contract
+
+`ephemeral/attest/codex-daemon/main.go` now runs a second turn on the
+first session (the reuse path that replaced the old per-turn process) and
+a first turn on that session's fork (previously the fork was created but
+never used for a turn), in addition to the original concurrent second
+session.
+
+Run with: go run ./ephemeral/attest/codex-daemon
+
+Output:
+
+Evidence directory: /var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/gimble-codex-daemon-2104268190
+Model: gpt-5.6-luna (Codex)
+Before: daemon_pid=1516 (err=<nil>) app_server_processes=[13055 1508 1516 68604] (err=<nil>)
+2026/09/12 21:30:59 gimble: run 20260912-213059.codex-daemon started in /var/folders/lt/09rsy64x65s_0fp2b8zq3n7m0000gn/T/gimble-codex-daemon-2104268190/runs/20260912-213059.codex-daemon
+2026/09/12 21:30:59 gimble: first.1: turn started (gpt-5.6-luna)
+2026/09/12 21:31:03 gimble: first.1: turn ended after 4s: ok
+2026/09/12 21:31:03 gimble: first.1: turn started (gpt-5.6-luna)
+2026/09/12 21:31:05 gimble: first.1: turn ended after 2s: ok
+2026/09/12 21:31:05 gimble: concurrent.1/second.1/second.1: turn started (gpt-5.6-luna)
+2026/09/12 21:31:06 gimble: concurrent.1/fork.1/forked.1: forked from first.1
+2026/09/12 21:31:06 gimble: concurrent.1/fork.1/forked.1: turn started (gpt-5.6-luna)
+2026/09/12 21:31:08 gimble: concurrent.1/fork.1/forked.1: turn ended after 3s: ok
+2026/09/12 21:31:10 gimble: concurrent.1/second.1/second.1: turn ended after 5s: ok
+2026/09/12 21:31:10 gimble: run 20260912-213059.codex-daemon ended: ok
+Turn 1 answer: "Seven is a prime number."
+Turn 1 (second turn, same session) answer: "Eleven is a prime number."
+Turn 2 answer: "Blue."
+Fork turn answer: "Apple is a fruit."
+Run error: <nil>
+After: daemon_pid=1516 (err=<nil>) app_server_processes=[13055 1508 1516 68604] (err=<nil>)
+Threads created by this run: [01a098d1-7762-7233-9af3-3f61396e580e 01a098d1-8fc2-7b20-ac8b-b75049ca0b2d 01a098d1-8fc2-7b20-ac8b-b779185c2240]
+Daemon thread/loaded/list: [01a0923a-03a3-7f62-9e4a-e9edf0cb009d 01a0928a-adb2-7cc1-8689-0c69fe06d37c 01a0928b-87f2-7950-8c39-bffc9655d787 01a0939c-9b3f-7e01-9cd6-c4f6c91f2350 01a093ac-fece-7793-a6cd-292cefbcf94b 01a093c9-7aa6-7882-b800-ca9ce2629afd 01a09585-487d-7cf3-9983-88a1466c4b40 01a098d1-4a07-74a1-b261-bf3286c48a9b 01a098d1-7762-7233-9af3-3f61396e580e 01a098d1-8fc2-7b20-ac8b-b75049ca0b2d 01a098d1-8fc2-7b20-ac8b-b779185c2240] (err=<nil>)
+All created threads loaded in the shared daemon: true
+Success: true (same_daemon_pid=true same_app_server_processes=true)
+
+Reading the evidence:
+
+- daemon_pid is 1516 before and after, matching the daemon pid from
+  `pgrep -f 'app-server --listen unix'` immediately before and after this
+  whole attestation session: the shared daemon never restarted.
+- app_server_processes (every pid on the machine whose command line
+  mentions app-server) is identical before and after: no new app-server
+  process was spawned by two sessions, four turns, and one fork.
+- The second turn on `first` ("Eleven is a prime number.") ran on the same
+  connection and thread as the first turn, without a new thread/start:
+  this is the reuse path finding 2 said was unexercised.
+- The fork turn ("Apple is a fruit.") proves thread/fork's subscription
+  covers running a real turn on the fork, not only creating the thread.
+- Three threads were created and `thread/loaded/list`, queried straight
+  from the daemon over its own control socket independently of the codex
+  package, includes all three alongside threads left loaded from earlier,
+  unrelated daemon activity (Codex Desktop and prior runs).
+- All four turns returned text and the run completed with no error.
+
+## What was left out and why
+
+- The attest program does not count WebSocket connections: it runs outside
+  package codex and cannot see the adapter's connection. Connection
+  identity is observed instead by the in-package live test, which holds
+  the `*connection` pointer after the first turn, asserts an ordinary
+  second turn left it unchanged (one connection for every turn), then
+  kills it and asserts the third turn ran on a different one (redial with
+  resume). Round-2 review run, 2026-09-12, gpt-5.6-luna, daemon pid 1516
+  before and after:
+
+    === RUN   TestRunTurnAfterRedialResumesThread
+    --- PASS: TestRunTurnAfterRedialResumesThread (7.23s)
+    PASS
+    ok  	github.com/tylergannon/gimble/codex	7.491s
+
+- A redial whose thread/resume fails now closes the connection it just
+  dialed before returning the error, so retrying does not accumulate
+  subscribed clients in the daemon or reader goroutines in the process.
+- `HarnessAdapter.Close` and any adapter-lifecycle cleanup remain
+  unaddressed by design; that is explicitly the next commit's scope.
+
+## Commit 2: HarnessAdapter.Close, called for real when a scope ends
+
+Model used: gpt-5.6-luna (Codex), for the turn in the live test below.
+
+`HarnessAdapter` now has a required `Close(ctx, sessionID) error` method.
+`scope.end` (gimble/scope.go) calls it for every adopted session that has a
+native id, on a `context.WithTimeout(context.Background(), 10*time.Second)`
+independent of the run's own ctx, and records `SessionClosed{Error}`
+either way. A session with no native id (never ran a turn) gets no Close
+call. Close failures never enter the scope's own error; they are pushed
+onto the run under a mutex and Run joins the aggregate as a new `*CloseError`
+into its returned error, alongside `RunEnded.Error`, once the root scope has
+ended.
+
+The Codex adapter's `Close` (codex/codex.go) removes the session from
+`a.sessions`, deregisters the thread from the shared connection's routing
+table (`connection.unregisterThread`, the counterpart to `registerThread`)
+whether or not that connection is still alive, and then sends
+`thread/archive {"threadId": id}` over a live connection: the shared one if
+its reader is healthy, otherwise a redial through the same path turns use,
+because a dead client socket does not mean the daemon or the thread is
+gone. The redial for Close never starts a daemon: if `daemon version`
+reports it stopped, the thread holds nothing anywhere and Close returns
+nil without a call (`TestCloseNeverStartsAStoppedDaemon` proves this with
+a fake `codex` on PATH). It never stops or restarts the daemon. An unknown
+id (never registered, or already closed) returns nil without a network
+call, and the daemon's "no rollout found" answer for a thread someone else
+already archived is treated as success.
+
+Why archive rather than unsubscribe: the first version of this commit used
+`thread/unsubscribe`, and the live run showed both threads still in
+`thread/loaded/list` afterwards. A loaded thread keeps its MCP child
+processes and their pipes inside the shared daemon. Measured on this
+machine on 2026-09-12: archiving one thread dropped the daemon from 261 to
+249 open descriptors and from 48 to 45 child processes; archiving the
+day's 12 proof threads dropped it from 248 to 141 descriptors and from 45
+to 19 children, and from 18 loaded threads to the 7 that belong to Codex
+Desktop. The daemon runs under a 256-descriptor soft limit and had logged
+413 "Too many open files" errors by then. Unsubscribe releases nothing
+that matters; archive is the release.
+
+### Live proof, without restarting the daemon
+
+`codex/daemon_live_test.go`
+(`TestCloseArchivesThreadsWithoutTouchingTheDaemon`, skipped unless
+`GIMBLE_LIVE=1`) runs inside `gimble.Run`: it creates one session, runs one
+short turn on gpt-5.6-luna, forks the session without ever running a turn
+on the fork (so the fork's only allocation is `thread/fork`'s
+subscription), and lets the run's root scope end. It then asserts the
+adapter's `sessions` map and the shared connection's `threads` map are both
+empty, that `thread/archive` succeeded for both threads (observed through
+the unexported test-only hook `adapter.onArchive`), that neither thread is
+in `thread/loaded/list` any more (queried on the same still-open
+connection), and that the managed daemon's pid (`pgrep -fl 'app-server
+--listen unix'`, filtered to the line starting `codex `) is unchanged.
+
+Run with:
+
+    GIMBLE_LIVE=1 go test ./codex -run TestCloseArchivesThreadsWithoutTouchingTheDaemon -v
+
+Passing output, 2026-09-12, daemon descriptors 141 before and 149 after
+(the adapter's own still-open WebSocket accounts for the connection):
+
+    === RUN   TestCloseArchivesThreadsWithoutTouchingTheDaemon
+        daemon_live_test.go:201: daemon thread/loaded/list after Close: 7 threads
+        daemon_live_test.go:206: archived thread 01a098eb-726f-75e2-9e2f-3ed2587263e1: unloaded from the daemon
+        daemon_live_test.go:206: archived thread 01a098eb-8069-7471-b44c-eed590c5b5d0: unloaded from the daemon
+        daemon_live_test.go:217: daemon pid before=1516 after=1516 (unchanged)
+    --- PASS: TestCloseArchivesThreadsWithoutTouchingTheDaemon (4.24s)
+    PASS
+    ok  	github.com/tylergannon/gimble/codex	4.503s
+
+Reading the evidence:
+
+- Both `sessions` and `threads` maps were empty after `Run` returned: Close
+  ran for the plain session and for the fork, and nothing was left
+  registered client-side for either.
+- Both threads were archived and the daemon's own loaded list no longer
+  contains them: the 7 threads left loaded are Codex Desktop's, the same 7
+  that were loaded before the run.
+- The managed daemon's pid was 1516 before and after: Close never stopped
+  or restarted the shared daemon.
+- Round-02 review found that Close on a dead client socket dropped local
+  state and returned nil without archiving, leaking the thread in a daemon
+  that was still up. Close now archives through `adapter.conn`, the same
+  redial path turns use, so a dead socket redials and archives; if the
+  redial itself fails, Close returns the error and the run records it.
+  `TestCloseArchivesThroughARedialedConnection` runs a turn, kills the
+  adapter's socket, and lets the scope end with no further turn:
+
+      === RUN   TestCloseArchivesThroughARedialedConnection
+          daemon_live_test.go:284: thread 01a098f3-5e1c-79b1-b398-c26dc6ca31d6 archived through the redialed connection and unloaded from the daemon
+          daemon_live_test.go:292: daemon pid before=1516 after=1516 (unchanged)
+      --- PASS: TestCloseArchivesThroughARedialedConnection (3.93s)
+
+  Without a daemon, `codex/codex_test.go`'s
+  `TestCloseOnADeadConnectionDropsLocalRoutingState` gives Close a dead
+  connection and an already-cancelled cleanup context: local maps are
+  empty afterwards and Close returns an error rather than a false success.
+
+### Using an archived thread again: not through the adapter
+
+Probed 2026-09-13 against the daemon (codex-cli 0.153.4): `thread/read`
+works on an archived thread, but `thread/resume` and `thread/fork` answer
+`session <id> is archived. Run codex unarchive <id> to unarchive it first`.
+After `thread/unarchive` both work. The first version of this change had the
+adapter unarchive and retry, and its live test passed while leaving one
+extra thread loaded per run. Stepping through the sequence on a raw
+connection, tracking `thread/loaded/list` after each call:
+
+    new loaded after unarchive: [01a09a4d-d6f6-78e0-a66e-27366843943f]
+    fork returned: 01a09a4d-d9ae-76a1-af96-e222bd7864bb
+    new loaded after fork (beyond unarchive): [01a09a4d-d9ae-76a1-af96-e222bd7864bb]
+      01a09a4d-d6f6-... path=<nil> forkedFromId=<nil> status=map[type:active]
+      archive 01a09a4d-d6f6-... err: no rollout found for thread id ...
+    ghosts left from this probe: [01a09a4d-d6f6-78e0-a66e-27366843943f]
+
+`thread/unarchive` itself creates a ghost: a new in-memory thread with no
+rollout, not the unarchived thread, which the daemon then refuses to
+archive (`no rollout found`), delete (`thread is not persisted and cannot
+be deleted`), or resume. `codex unarchive <id>` on the CLI does the same:
+
+    new loaded after CLI unarchive: [01a09a4e-78dc-7aa3-b51a-df8e69452666]
+    ghosts left from this probe: [01a09a4e-78dc-7aa3-b51a-df8e69452666]
+
+The fork after either unarchive is clean and archivable; only the
+unarchive leaks. Ghosts stay loaded until the daemon restarts. Six were
+created on this machine while finding this (hand probes and three runs of
+the unarchive-and-retry test) and are recorded here so they are not
+mistaken for adapter leaks:
+
+    GHOST 01a09a46-d4e5-7c40-8c02-29f4930695f3
+    GHOST 01a09a48-854b-7862-8e43-a3f8b30748cf
+    GHOST 01a09a49-1fc7-7df0-9492-ce7b41f16622
+    GHOST 01a09a4c-9684-7722-9940-36bb9df78941
+    GHOST 01a09a4d-d6f6-78e0-a66e-27366843943f
+    GHOST 01a09a4e-78dc-7aa3-b51a-df8e69452666
+
+Decision: the adapter does not unarchive. `callThread` (codex/codex.go)
+reads the thread first (`thread/read`, read-only; an archived thread's
+`path` is under `archived_sessions`) and a fork or resume of an archived
+thread is `errThreadArchived`, with no fork, resume, or unarchive call
+after that read. The error says why rather than telling the caller to
+unarchive, since unarchiving by any route is what leaks. A closed
+session's thread cannot be reused until the daemon's unarchive stops
+leaking; nothing in Gimble's API reaches a closed session today, so this
+only constrains a future feature.
+
+On daemon start: the adapter starts the daemon when `daemon version`
+reports none running, for turns and session creation. That is the
+intended design (attach to the one daemon if it exists, otherwise start
+it, never stop it). Only Close declines to start one, because a stopped
+daemon holds nothing to release.
+`TestForkOfAnArchivedParentFailsWithoutAGhost` archives a parent out from
+under the adapter, forks it, and asserts the error, that Close still ran
+for the parent, and that `thread/loaded/list` gained nothing.
+
+### What was left out and why
+
+- The unsubscribe version of this commit was what pushed the shared daemon
+  into `Too many open files (os error 24)`: each proof run left its
+  threads loaded, and by the end of the day the daemon held 261
+  descriptors against a 256 soft limit. That is the failure issue #143
+  exists to prevent, reproduced by the first attempt at fixing it. The
+  archive version above is the correction. Idempotence (`Close` on an
+  unknown id, twice) is proven without any daemon traffic in
+  `codex/codex_test.go`'s `TestCloseIsIdempotentForAnUnknownSession`, and
+  correspondingly for Claude in `claude/claude_test.go`.
+- Every other acceptance item (the scope-error/CloseError contract, the
+  cancelled-run close-with-fresh-context guarantee, the no-native-id case,
+  and `Complete.RecordingError`'s independence from close failures) is
+  proven with a fake adapter in the root package's `issue143_test.go`,
+  which needs no live daemon.

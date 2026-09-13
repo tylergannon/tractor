@@ -24,6 +24,7 @@ func (*exampleAdapter) Steer(context.Context, string, string) error { return nil
 func (*exampleAdapter) Fork(context.Context, string) (string, error) {
 	return "example-fork", nil
 }
+func (*exampleAdapter) Close(context.Context, string) error { return nil }
 
 func exampleContext() (context.Context, func()) {
 	dir, err := os.MkdirTemp("", "gimble-example-")
@@ -98,6 +99,7 @@ func (*exampleLoopAdapter) Steer(context.Context, string, string) error { return
 func (*exampleLoopAdapter) Fork(context.Context, string) (string, error) {
 	return "example-planner-fork", nil
 }
+func (*exampleLoopAdapter) Close(context.Context, string) error { return nil }
 
 func ExampleLoop() {
 	ctx, closeProject := exampleContext()

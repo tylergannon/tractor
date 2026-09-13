@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,15 +40,66 @@ type run struct {
 	sessions  map[string]*eventWriter
 	errMu     sync.Mutex
 	recordErr error
+	closeMu   sync.Mutex
+	closeErrs []error
+}
+
+// CloseError aggregates every HarnessAdapter.Close failure a run's sessions
+// produced as their scopes ended, one entry per failing session. Run joins
+// it into its returned error; it never enters a scope's own error, since
+// cleanup happens after the scope's body has already established its
+// result. Unwrap lets errors.Is and errors.As see through to the individual
+// failures.
+type CloseError struct {
+	errs []error
+}
+
+func (e *CloseError) Error() string {
+	parts := make([]string, len(e.errs))
+	for i, err := range e.errs {
+		parts[i] = err.Error()
+	}
+	return "gimble: close: " + strings.Join(parts, "; ")
+}
+
+func (e *CloseError) Unwrap() []error { return e.errs }
+
+// recordCloseFailure folds one session's Close failure into the run's
+// aggregate close error, under a mutex since sibling scopes end
+// concurrently (Group, Loop tasks).
+func (r *run) recordCloseFailure(sessionID string, err error) {
+	if r == nil || err == nil {
+		return
+	}
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+	r.closeErrs = append(r.closeErrs, fmt.Errorf("%s: %w", sessionID, err))
+}
+
+// closeError returns the run's aggregate close error, or nil if every
+// session closed cleanly.
+func (r *run) closeError() error {
+	if r == nil {
+		return nil
+	}
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+	if len(r.closeErrs) == 0 {
+		return nil
+	}
+	return &CloseError{errs: append([]error(nil), r.closeErrs...)}
 }
 
 // Run starts one run of a workflow and blocks until the body returns. The
 // run's ctx derives from the caller's, so main can put a deadline on it.
-// The run is the root scope: when the body returns, its sessions are
-// closed and its ctx is cancelled.
+// The run is the root scope: when the body returns, each session it created
+// is actually released through its adapter's Close, then its ctx is
+// cancelled.
 // The body must join its concurrent work before returning. Run then finishes
-// every log it owns and returns the body's error joined with the first recording
-// failure, if any; cancellation alone is not completion.
+// every log it owns and returns the body's error joined with a *CloseError
+// aggregating every session's Close failure (nil when there were none) and
+// with the first recording failure, if any; cancellation alone is not
+// completion.
 func Run(ctx context.Context, name string, body func(ctx context.Context) error) error {
 	project, _ := ctx.Value(projectKey{}).(string)
 	if project == "" {
@@ -90,6 +142,11 @@ func Run(ctx context.Context, name string, body func(ctx context.Context) error)
 		r.event("", "", "", cancelled)
 		r.projectEvent(cancelled)
 	}
+	// The root scope's deferred end already ran inside do, closing every
+	// session before body returned control here, so the aggregate close
+	// error is complete by now: RunEnded, the observation status, and
+	// Run's returned error all carry the same verdict.
+	err = errors.Join(err, r.closeError())
 	r.event("", "", "", RunEnded{Name: name, Error: errString(err)})
 	r.projectEvent(RunEnded{Name: name, Error: errString(err)})
 	// The observation is finalized while every log this run owns is still

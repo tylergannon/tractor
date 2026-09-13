@@ -7,7 +7,10 @@ import (
 
 // HarnessAdapter is the agent-specific code for one coding-agent harness
 // (for example, Codex or Claude Code). It is untyped: a raw JSON Schema goes
-// in, raw JSON comes out; Generate validates and decodes.
+// in, raw JSON comes out; Generate validates and decodes. Whatever an
+// adapter allocates for a session (a process, a subscription, a map entry)
+// is released by Close, which the runtime calls for real when the scope
+// that owns the session ends.
 type HarnessAdapter interface {
 	// CreateSession reserves one adapter session and returns its id. A harness
 	// may start its native process or conversation lazily in RunTurn.
@@ -25,6 +28,10 @@ type HarnessAdapter interface {
 
 	// Fork returns a new native session with the conversation so far.
 	Fork(ctx context.Context, sessionID string) (string, error)
+
+	// Close releases whatever the adapter holds for the session. Idempotent.
+	// Called by the runtime when the owning scope ends.
+	Close(ctx context.Context, sessionID string) error
 }
 
 // TurnResult is what one turn produced.
