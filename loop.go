@@ -7,37 +7,36 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/tylergannon/polytype"
-	"go.yaml.in/yaml/v4"
 )
 
 // Task is one assignment selected by a Loop planner.
 type Task struct {
 	// Name is a short label for recognizing the work.
-	Name string `json:"name" yaml:"name"`
+	Name string `json:"name"`
 	// Description states the desired result and any necessary, non-obvious
 	// information. It leaves the approach to the worker.
-	Description string `json:"description" yaml:"description"`
+	Description string `json:"description"`
 	// DefinitionOfDone says how to recognize successful completion of this
 	// assignment. It does not declare that the enclosing goal is complete.
-	DefinitionOfDone string `json:"definition_of_done" yaml:"definition_of_done"`
+	DefinitionOfDone string `json:"definition_of_done"`
 	// Validation describes evidence the workflow can gather. Either field may
 	// be empty; the workflow still assesses the task against DefinitionOfDone.
 	Validation struct {
 		// Command is a known executable check.
-		Command string `json:"command" yaml:"command,omitempty"`
+		Command string `json:"command"`
 		// Query is a question for a validator agent.
-		Query string `json:"query" yaml:"query,omitempty"`
-	} `json:"validation" yaml:"validation"`
+		Query string `json:"query"`
+	} `json:"validation"`
 }
 
-// plan is the planner's answer for one dispatch. A null Next ends dispatch;
-// it does not attest that the enclosing goal has been fulfilled.
+// plan is the planner's whole answer for one dispatch: the revised backlog
+// and the index of the next task, or null to end dispatch.
 type plan struct {
-	Next polytype.Nullable[Task] `json:"next"`
+	Tasks []Task                 `json:"tasks"`
+	Next  polytype.Nullable[int] `json:"next"`
 }
 
 type loop struct {
@@ -77,51 +76,41 @@ func (l *loop) Tasks(yield func(context.Context, Task) bool) {
 			return fmt.Errorf("gimble: %w", err)
 		}
 		file := filepath.Join(dir, "backlog.md")
-		front, err := yaml.Marshal(backlog{Goal: l.goal, Tasks: []Task{}})
-		if err != nil {
-			return fmt.Errorf("gimble: %w", err)
-		}
-		if err := os.WriteFile(file, []byte("---\n"+string(front)+"---\n"), 0o644); err != nil {
-			return fmt.Errorf("gimble: %w", err)
-		}
 
+		tasks := []Task{}
 		var previous string
 		for {
-			raw, err := os.ReadFile(file)
+			backlogText, err := backlogJSON(l.goal, tasks)
 			if err != nil {
 				return fmt.Errorf("gimble: %w", err)
 			}
-			_, bad := readBacklog(raw, l.goal)
-			if bad != nil {
-				logf("%s: the backlog does not parse, so the planner is asked to fix it: %v", loopScope.key, bad)
-			}
-			p, err := l.planner.Generate[plan](ctx, planPrompt(l.name, file, l.planner.workdir, string(raw), bad, ScopeText(ctx), previous))
+			p, err := l.planner.Generate[plan](ctx, planPrompt(l.name, l.planner.workdir, string(backlogText), ScopeText(ctx), previous))
 			if err != nil {
 				return err
 			}
+			if err := validatePlan(p); err != nil {
+				return fmt.Errorf("gimble: loop %q: %w", l.name, err)
+			}
+			tasks = p.Tasks
+			if tasks == nil {
+				tasks = []Task{}
+			}
 
-			revised, err := os.ReadFile(file)
+			revisedText, err := backlogJSON(l.goal, tasks)
 			if err != nil {
 				return fmt.Errorf("gimble: %w", err)
 			}
-			backlog, err := readBacklog(revised, l.goal)
-			if err != nil {
-				logf("%s: the planner left an invalid backlog, so it will be asked to repair it: %v", loopScope.key, err)
-				continue
+			if err := os.WriteFile(file, []byte("---\n"+string(revisedText)+"\n---\n"), 0o644); err != nil {
+				return fmt.Errorf("gimble: %w", err)
 			}
+
 			if !p.Next.Present {
 				loopScope.run.event(loopScope.key, "", "", PlannerDecision{})
 				logf("%s: the planner ended dispatch", loopScope.key)
 				return nil
 			}
-			if err := validateTask(p.Next.Value); err != nil {
-				return fmt.Errorf("gimble: loop %q: planner returned an invalid task: %w", l.name, err)
-			}
-			if !slices.Contains(backlog.Tasks, p.Next.Value) {
-				return fmt.Errorf("gimble: loop %q: planner returned task %q but did not preserve that assignment in the backlog", l.name, p.Next.Value.Name)
-			}
 
-			task := p.Next.Value
+			task := tasks[p.Next.Value]
 			logf("%s: task: %s", loopScope.key, oneLine(task.Name))
 			loopScope.run.event(loopScope.key, "", "", PlannerDecision{Task: optionalTask(task)})
 			more := true
@@ -155,30 +144,35 @@ func (l *loop) Err() error {
 	return l.err
 }
 
-type backlog struct {
-	Goal  string `json:"goal" yaml:"goal"`
-	Tasks []Task `json:"tasks" yaml:"tasks"`
+// backlogJSON renders goal and tasks as the JSON object written to
+// backlog.md (inside its frontmatter) and shown to the planner in its
+// prompt, so both channels always agree.
+func backlogJSON(goal string, tasks []Task) ([]byte, error) {
+	return json.MarshalIndent(struct {
+		Goal  string `json:"goal"`
+		Tasks []Task `json:"tasks"`
+	}{Goal: goal, Tasks: tasks}, "", "  ")
 }
 
-func readBacklog(raw []byte, goal string) (backlog, error) {
-	rest, ok := strings.CutPrefix(string(raw), "---\n")
-	front, _, closed := strings.Cut(rest, "\n---")
-	if !ok || !closed {
-		return backlog{}, errors.New("the file does not start with YAML frontmatter between --- lines")
-	}
-	var b backlog
-	if err := yaml.Unmarshal([]byte(front), &b); err != nil {
-		return backlog{}, err
-	}
-	if b.Goal != goal {
-		return backlog{}, errors.New("the goal was changed")
-	}
-	for i, task := range b.Tasks {
+// validatePlan checks a planner's structured answer: every task must be
+// well-formed, no two tasks may share a name, and a present Next must index
+// into Tasks.
+func validatePlan(p plan) error {
+	seen := make(map[string]bool, len(p.Tasks))
+	for i, task := range p.Tasks {
 		if err := validateTask(task); err != nil {
-			return backlog{}, fmt.Errorf("task %d: %w", i+1, err)
+			return fmt.Errorf("task %d: %w", i+1, err)
 		}
+		name := strings.TrimSpace(task.Name)
+		if seen[name] {
+			return fmt.Errorf("task %d: duplicate task name %q", i+1, task.Name)
+		}
+		seen[name] = true
 	}
-	return b, nil
+	if p.Next.Present && (p.Next.Value < 0 || p.Next.Value >= len(p.Tasks)) {
+		return fmt.Errorf("next %d is out of range for %d tasks", p.Next.Value, len(p.Tasks))
+	}
+	return nil
 }
 
 func validateTask(task Task) error {
@@ -194,14 +188,13 @@ func validateTask(task Task) error {
 	}
 }
 
-func planPrompt(name, file, workdir, backlogText string, bad error, scoped, previous string) string {
+func planPrompt(name, workdir, backlogText, scoped, previous string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "You plan the loop %q in %s. Its revisable backlog is %s.\n\n", name, workdir, file)
+	fmt.Fprintf(&b, "You plan the loop %q in %s. Its backlog is shown below.\n\n", name, workdir)
 	b.WriteString("Choose the next assignment that offers the greatest concrete gain toward the goal, based on current evidence, priorities, and real dependencies. Size it for one worker to understand, complete, and demonstrate in one working session. A later task may offer more gain than repairing a nonblocking earlier defect; keep deferred defects visible.\n\n")
 	b.WriteString("Treat recorded deterministic results as authoritative: a prose claim or agent judgment cannot override a nonzero command exit. If a check relevant to the goal or an assignment's Definition of Done failed and no later recorded run passed, work remains.\n\n")
-	b.WriteString("Inspect the workspace only to plan. Change only the backlog; do not perform or validate an assignment yourself.\n\n")
+	b.WriteString("Inspect the workspace only to plan; do not perform or validate an assignment yourself.\n\n")
 	b.WriteString("Describe the desired result and necessary non-obvious facts. Trust the worker to choose the approach. Do not supply procedural checklists, obvious advice, speculative code, or a numerical progress score.\n\n")
-	b.WriteString("The backlog has immutable `goal` and a `tasks` list using the result schema. Edit it as the work changes. The exact task you return must remain in that list until its result is available on the next call. Return `next: null` to end dispatch; that does not certify that the goal is fulfilled.\n\n")
 	if strings.TrimSpace(scoped) != "" {
 		b.WriteString("Scoped context:\n\n" + scoped + "\n\n")
 	}
@@ -209,9 +202,6 @@ func planPrompt(name, file, workdir, backlogText string, bad error, scoped, prev
 		b.WriteString("Previous task record:\n\n" + previous + "\n\n")
 	}
 	b.WriteString("Backlog now:\n\n" + backlogText + "\n\n")
-	if bad != nil {
-		fmt.Fprintf(&b, "The backlog is invalid, so no task can be dispatched yet: %v. Repair it before choosing work.\n\n", bad)
-	}
-	b.WriteString("Revise the backlog and return the next assignment exactly as it appears there, or null.")
+	b.WriteString("Return the full revised task list in `tasks` and the index of the chosen task in `next`, or `next: null` to end dispatch; that does not certify that the goal is fulfilled.")
 	return b.String()
 }

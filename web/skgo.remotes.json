@@ -1,6 +1,7 @@
 {
 	"remotes": [
-		"10a713o/guide"
+		"10a713o/guide",
+		"1cqgzir/scopeUsage"
 	],
 	"loads": [
 		"src/routes/runs/[runID]/+page.server.ts"

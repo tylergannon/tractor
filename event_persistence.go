@@ -87,10 +87,6 @@ func optionalTask(task Task) polytype.Optional[Task] {
 	return polytype.Optional[Task]{Present: true, Value: task}
 }
 
-func nullableTask(task Task) polytype.Nullable[Task] {
-	return polytype.Nullable[Task]{Present: true, Value: task}
-}
-
 func (w *eventWriter) close() error { return w.file.Close() }
 
 func (r *run) recordFailure(operation string, err error) {

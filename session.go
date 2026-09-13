@@ -27,6 +27,7 @@ type Session struct {
 	running bool
 	closed  bool
 
+	usage            Usage // the session's running total across its turns
 	canonicalSession string
 	eventSeq         uint64
 	messageIDs       map[string]string
@@ -73,12 +74,9 @@ func (s *Session) Generate[T Output](ctx context.Context, prompt string, opts ..
 
 func generate[T Output](ctx context.Context, s *Session, prompt string, onEvent func(AgentEvent) error, outputType string) (T, error) {
 	var out T
-	raw, err := s.turn(ctx, prompt, out.Schema(), onEvent, outputType)
+	raw, err := s.turn(ctx, prompt, out.Schema(), onEvent, outputType, out.ValidateJSON)
 	if err != nil {
 		return out, err
-	}
-	if err := out.ValidateJSON(raw); err != nil {
-		return out, fmt.Errorf("gimble: %s: the result does not validate: %w", s.id, err)
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return out, fmt.Errorf("gimble: %s: decode the result: %w", s.id, err)
@@ -86,7 +84,10 @@ func generate[T Output](ctx context.Context, s *Session, prompt string, onEvent 
 	return out, nil
 }
 
-func (s *Session) turn(ctx context.Context, prompt string, schema json.RawMessage, onEvent func(AgentEvent) error, outputType string) (json.RawMessage, error) {
+// turn runs one agent turn and records its outcome. validate, if any, is the
+// typed output's check: the turn is recorded as failed when the result does
+// not validate, because that is what the turn produced.
+func (s *Session) turn(ctx context.Context, prompt string, schema json.RawMessage, onEvent func(AgentEvent) error, outputType string, validate func([]byte) error) (json.RawMessage, error) {
 	s.mu.Lock()
 	if err := s.usable(); err != nil {
 		s.mu.Unlock()
@@ -124,8 +125,9 @@ func (s *Session) turn(ctx context.Context, prompt string, schema json.RawMessag
 	if scope != nil {
 		scope.run.event(scope.key, s.id, turnID, TurnStarted{Prompt: prompt, OutputType: outputType})
 	}
-	tokens := make([]JSONText, 0)
-	wrapped := func(e AgentEvent) error {
+	var turnUsage Usage
+	var wrapped func(AgentEvent) error
+	wrapped = func(e AgentEvent) error {
 		stamped, err := s.stampAgentEvent(e)
 		if err != nil {
 			return err
@@ -135,15 +137,14 @@ func (s *Session) turn(ctx context.Context, prompt string, schema json.RawMessag
 				return err
 			}
 		}
-		if stamped.Type == "session.step.ended" {
-			var data struct {
-				Tokens json.RawMessage `json:"tokens"`
-			}
-			if json.Unmarshal(stamped.Data, &data) == nil && len(data.Tokens) > 0 {
-				tokens = append(tokens, JSONText(data.Tokens))
-			}
+		if err := onEvent(stamped); err != nil {
+			return err
 		}
-		return onEvent(stamped)
+		if step, carried := stepUsage(stamped); carried {
+			turnUsage.add(step)
+			return s.recordUsage(step, native, turnID, wrapped)
+		}
+		return nil
 	}
 	s.mu.Lock()
 	s.activeEmit = wrapped
@@ -161,9 +162,26 @@ func (s *Session) turn(ctx context.Context, prompt string, schema json.RawMessag
 	if err := wrapped(nativeEvent("session.execution.started", map[string]any{"sessionID": native}, map[string]any{"provider": "gimble", "sessionID": native, "turnID": turnID})); err != nil {
 		return nil, fmt.Errorf("gimble: %s: start execution: %w", s.id, err)
 	}
-	raw, err := s.adapter.RunTurn(ctx, native, prompt, schema, wrapped)
+	result, err := s.adapter.RunTurn(ctx, native, prompt, schema, wrapped)
 	if ctx.Err() != nil {
 		err = ctx.Err()
+	} else if len(result.Usage) > 0 {
+		// The steps already accounted for the turn's tokens. The harness's
+		// own report adds only the cost it stated, so nothing is counted
+		// twice, and the session republishes its total.
+		var stated Usage
+		for _, model := range result.Usage {
+			stated.Cost += model.Cost
+		}
+		if usageErr := s.recordUsage(stated, native, turnID, wrapped); usageErr != nil {
+			err = errors.Join(err, usageErr)
+		}
+	}
+	// The turn's usage is what the harness reported, and otherwise what its
+	// steps spent, under the model the session runs.
+	report := modelUsage(map[string]Usage{s.model: turnUsage})
+	if result.Usage != nil {
+		report = modelUsage(result.Usage)
 	}
 	logf("%s: turn ended after %s: %v", s.id, time.Since(start).Round(time.Second), orNone(err))
 	if ctx.Err() != nil {
@@ -174,7 +192,7 @@ func (s *Session) turn(ctx context.Context, prompt string, schema json.RawMessag
 		terminalErr := wrapped(nativeEvent("session.execution.interrupted", map[string]any{"sessionID": native, "reason": reason}, map[string]any{"provider": "gimble", "sessionID": native, "turnID": turnID}))
 		err = errors.Join(ctx.Err(), terminalErr)
 		if scope != nil {
-			scope.run.event(scope.key, s.id, turnID, TurnEnded{Error: ctx.Err().Error(), Tokens: tokens, Duration: time.Since(start), Interrupted: true})
+			scope.run.event(scope.key, s.id, turnID, TurnEnded{Error: ctx.Err().Error(), Usage: report, Duration: time.Since(start), Interrupted: true})
 		}
 		return nil, err
 	}
@@ -182,17 +200,69 @@ func (s *Session) turn(ctx context.Context, prompt string, schema json.RawMessag
 		terminalErr := wrapped(nativeEvent("session.execution.failed", map[string]any{"sessionID": native, "error": map[string]any{"type": "provider", "message": err.Error()}}, map[string]any{"provider": "gimble", "sessionID": native, "turnID": turnID}))
 		err = errors.Join(err, terminalErr)
 		if scope != nil {
-			scope.run.event(scope.key, s.id, turnID, TurnEnded{Error: err.Error(), Tokens: tokens, Duration: time.Since(start)})
+			scope.run.event(scope.key, s.id, turnID, TurnEnded{Error: err.Error(), Usage: report, Duration: time.Since(start)})
 		}
 		return nil, fmt.Errorf("gimble: %s: %w", s.id, err)
 	}
 	if terminalErr := wrapped(nativeEvent("session.execution.succeeded", map[string]any{"sessionID": native}, map[string]any{"provider": "gimble", "sessionID": native, "turnID": turnID})); terminalErr != nil {
 		return nil, fmt.Errorf("gimble: %s: complete execution: %w", s.id, terminalErr)
 	}
-	if scope != nil {
-		scope.run.event(scope.key, s.id, turnID, TurnEnded{Result: JSONText(raw), Tokens: tokens, Duration: time.Since(start)})
+	// The harness succeeded, so its native events stand; only the turn's own
+	// recorded outcome carries the validation failure.
+	if validate != nil {
+		if err := validate(result.Output); err != nil {
+			if scope != nil {
+				scope.run.event(scope.key, s.id, turnID, TurnEnded{Result: JSONText(result.Output), Error: err.Error(), Usage: report, Duration: time.Since(start)})
+			}
+			return nil, fmt.Errorf("gimble: %s: the result does not validate: %w", s.id, err)
+		}
 	}
-	return raw, nil
+	if scope != nil {
+		scope.run.event(scope.key, s.id, turnID, TurnEnded{Result: JSONText(result.Output), Usage: report, Duration: time.Since(start)})
+	}
+	return result.Output, nil
+}
+
+// stepUsage reads the usage a step event carries. A step that ended always
+// accounts for itself; a step that failed does so only when it reached the
+// model, which is when its data carries both cost and tokens.
+func stepUsage(event AgentEvent) (Usage, bool) {
+	ended := event.Type == "session.step.ended"
+	if !ended && event.Type != "session.step.failed" {
+		return Usage{}, false
+	}
+	var data struct {
+		Cost   *float64 `json:"cost"`
+		Tokens *Tokens  `json:"tokens"`
+	}
+	if err := json.Unmarshal(event.Data, &data); err != nil {
+		return Usage{}, false
+	}
+	if !ended && (data.Cost == nil || data.Tokens == nil) {
+		return Usage{}, false
+	}
+	var usage Usage
+	if data.Cost != nil {
+		usage.Cost = *data.Cost
+	}
+	if data.Tokens != nil {
+		usage.Tokens = *data.Tokens
+	}
+	return usage, true
+}
+
+// recordUsage adds one usage to the session's running total and emits that
+// total as session.usage.updated, through the same path the harness's own
+// events take: the session's total is republished after every step and
+// after every harness turn report.
+func (s *Session) recordUsage(add Usage, native, turnID string, emit func(AgentEvent) error) error {
+	s.mu.Lock()
+	s.usage.add(add)
+	total := s.usage
+	s.mu.Unlock()
+	return emit(nativeEvent("session.usage.updated",
+		map[string]any{"sessionID": native, "cost": total.Cost, "tokens": total.Tokens},
+		map[string]any{"provider": "gimble", "sessionID": native, "turnID": turnID}))
 }
 
 func nativeEvent(eventType string, data any, nativeRef any) AgentEvent {
@@ -230,7 +300,7 @@ func (s *Session) stampAgentEvent(event AgentEvent) (AgentEvent, error) {
 	allowedRef := map[string]bool{
 		"provider": true, "sessionID": true, "turnID": true, "messageID": true,
 		"responseID": true, "itemID": true, "parentToolUseID": true,
-		"normalizedMessageID": true, "normalizedSessionID": true, "accounting": true,
+		"normalizedMessageID": true, "normalizedSessionID": true,
 	}
 	for key := range ref {
 		if !allowedRef[key] {

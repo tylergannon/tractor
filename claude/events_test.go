@@ -56,7 +56,7 @@ func TestRawProjectorUsesNestedMessageIDAndExactToolUseID(t *testing.T) {
 	}
 }
 
-func TestRawProjectorStreamsTextAndMarksUnavailableAccounting(t *testing.T) {
+func TestRawProjectorStreamsTextAndZeroFillsAbsentUsage(t *testing.T) {
 	var events []gimble.AgentEvent
 	p := newProjector("session", "model", func(event gimble.AgentEvent) error { events = append(events, event); return nil })
 	for _, fixture := range []string{
@@ -74,8 +74,64 @@ func TestRawProjectorStreamsTextAndMarksUnavailableAccounting(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("event types = %v, want %v", got, want)
 	}
-	if !bytes.Contains(events[len(events)-1].NativeRef, []byte(`"tokensAvailable":false`)) || !bytes.Contains(events[len(events)-1].NativeRef, []byte(`"costAvailable":false`)) {
-		t.Fatalf("unavailable accounting not explicit: %s", events[len(events)-1].NativeRef)
+	ended := events[len(events)-1]
+	if !bytes.Contains(ended.Data, []byte(`"cost":0`)) || !bytes.Contains(ended.Data, []byte(`"tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}`)) {
+		t.Fatalf("absent usage was not zero-filled: %s", ended.Data)
+	}
+	if bytes.Contains(ended.NativeRef, []byte("accounting")) {
+		t.Fatalf("native ref still carries an accounting sidecar: %s", ended.NativeRef)
+	}
+}
+
+// The fixture is the accounting half of the `result` message recorded in
+// ephemeral/research/issue-149/claude/turn1.jsonl, verbatim.
+const resultFixture = `{"type":"result","subtype":"success","session_id":"session","total_cost_usd":0.0241153,` +
+	`"usage":{"input_tokens":10,"cache_creation_input_tokens":10341,"cache_read_input_tokens":25183,"output_tokens":181,` +
+	`"output_tokens_details":{"thinking_tokens":118},"service_tier":"standard","iterations":[{"input_tokens":10,"output_tokens":181,` +
+	`"cache_read_input_tokens":25183,"cache_creation_input_tokens":10341,"type":"message"}]},` +
+	`"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":10,"outputTokens":181,"cacheReadInputTokens":25183,` +
+	`"cacheCreationInputTokens":10341,"webSearchRequests":0,"costUSD":0.0241153,"contextWindow":200000,"maxOutputTokens":32000,` +
+	`"thinkingTokens":118,"canonicalModel":"claude-haiku-4-5","provider":"firstParty","costBasis":"list"}},` +
+	`"num_turns":1,"is_error":false,"result":"Paris is the capital of France."}`
+
+func TestRawProjectorReportsTurnUsageFromResult(t *testing.T) {
+	var events []gimble.AgentEvent
+	p := newProjector("session", "haiku", func(event gimble.AgentEvent) error { events = append(events, event); return nil })
+	mustRaw(t, p.raw(json.RawMessage(resultFixture)))
+	if len(events) != 0 {
+		t.Fatalf("result emitted events: %v", claudeTypes(events))
+	}
+
+	want := gimble.Usage{Cost: 0.0241153}
+	want.Tokens.Input, want.Tokens.Output, want.Tokens.Reasoning = 10, 63, 118
+	want.Tokens.Cache.Read, want.Tokens.Cache.Write = 25183, 10341
+	got := p.turnUsage()
+	if len(got) != 1 || got["claude-haiku-4-5-20251001"] != want {
+		t.Fatalf("turn report = %#v, want one entry %#v", got, want)
+	}
+
+	// With no modelUsage the fallback is one entry under the session's model,
+	// from result.usage and total_cost_usd.
+	var trimmed map[string]any
+	if err := json.Unmarshal([]byte(resultFixture), &trimmed); err != nil {
+		t.Fatal(err)
+	}
+	delete(trimmed, "modelUsage")
+	raw, err := json.Marshal(trimmed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = newProjector("session", "haiku", func(gimble.AgentEvent) error { return nil })
+	mustRaw(t, p.raw(raw))
+	if got := p.turnUsage(); len(got) != 1 || got["haiku"] != want {
+		t.Fatalf("fallback turn report = %#v, want one entry %#v", got, want)
+	}
+
+	// A turn that states nothing reports nothing.
+	p = newProjector("session", "haiku", func(gimble.AgentEvent) error { return nil })
+	mustRaw(t, p.raw(json.RawMessage(`{"type":"result","subtype":"success","session_id":"session","result":"done"}`)))
+	if got := p.turnUsage(); got != nil {
+		t.Fatalf("turn report = %#v, want nil", got)
 	}
 }
 

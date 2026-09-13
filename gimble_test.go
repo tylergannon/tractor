@@ -1,6 +1,7 @@
 package gimble
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tylergannon/gimble/internal/observation"
 	"github.com/tylergannon/gimble/internal/runlog"
+	"github.com/tylergannon/polytype"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -26,6 +29,7 @@ type fake struct {
 	// Close call, before closeErr; it lets a test inspect that ctx (for
 	// example, that it is not already cancelled).
 	onClose func(ctx context.Context, session string)
+	report  map[string]Usage // the harness's own turn report, when this fake states one
 
 	mu      sync.Mutex
 	made    int
@@ -41,7 +45,7 @@ func (f *fake) CreateSession(ctx context.Context, model, workdir string) (string
 	return "native-" + string(rune('0'+f.made)), nil
 }
 
-func (f *fake) RunTurn(ctx context.Context, session, prompt string, schema json.RawMessage, onEvent func(AgentEvent) error) (json.RawMessage, error) {
+func (f *fake) RunTurn(ctx context.Context, session, prompt string, schema json.RawMessage, onEvent func(AgentEvent) error) (TurnResult, error) {
 	f.mu.Lock()
 	if f.running == nil {
 		f.running = map[string]func(AgentEvent) error{}
@@ -55,12 +59,13 @@ func (f *fake) RunTurn(ctx context.Context, session, prompt string, schema json.
 	}()
 	out, err := f.answer(ctx, session, prompt, schema, onEvent)
 	if err != nil {
-		return nil, err
+		return TurnResult{}, err
 	}
+	result := TurnResult{Output: json.RawMessage(out), Usage: f.report}
 	if len(schema) == 0 {
-		return json.Marshal(out)
+		result.Output, err = json.Marshal(out)
 	}
-	return json.RawMessage(out), nil
+	return result, err
 }
 
 func (f *fake) Steer(ctx context.Context, session, message string) error {
@@ -485,18 +490,12 @@ func TestLoopCarriesStructuredTaskAndFeedback(t *testing.T) {
 	var prompts []string
 	f := &fake{answer: func(ctx context.Context, session, prompt string, schema json.RawMessage, emit func(AgentEvent) error) (string, error) {
 		prompts = append(prompts, prompt)
-		file := plannerBacklog(prompt)
 		if len(prompts) == 1 {
-			if err := writeTestBacklog(file, "ship", []Task{task}); err != nil {
-				return "", err
-			}
-			raw, err := json.Marshal(plan{Next: nullableTask(task)})
+			raw, err := json.Marshal(plan{Tasks: []Task{task}, Next: polytype.Nullable[int]{Present: true, Value: 0}})
 			return string(raw), err
 		}
-		if err := writeTestBacklog(file, "ship", []Task{}); err != nil {
-			return "", err
-		}
-		return `{"next":null}`, nil
+		raw, err := json.Marshal(plan{Tasks: []Task{}, Next: polytype.Nullable[int]{}})
+		return string(raw), err
 	}}
 	project := t.TempDir()
 	var tasks []Task
@@ -553,25 +552,49 @@ func TestLoopCarriesStructuredTaskAndFeedback(t *testing.T) {
 	if decided != task || began != task {
 		t.Fatalf("durable task changed: decision=%+v scope=%+v", decided, began)
 	}
+
+	backlogFile := filepath.Join(filepath.Dir(runs[0]), "scopes", "sprint.1", "backlog.md")
+	raw, err := os.ReadFile(backlogFile)
+	if err != nil {
+		t.Fatalf("backlog.md: %v", err)
+	}
+	wantBacklog, err := backlogJSON("ship", []Task{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "---\n" + string(wantBacklog) + "\n---\n"; string(raw) != want {
+		t.Fatalf("backlog.md = %q, want %q", raw, want)
+	}
 }
 
 func TestLoopRejectsInconsistentPlannerData(t *testing.T) {
 	task := Task{Name: "Build", Description: "Make it build.", DefinitionOfDone: "It builds."}
 	for _, test := range []struct {
 		name   string
-		next   Task
-		tasks  []Task
+		plan   plan
 		needle string
 	}{
-		{name: "blank description", next: Task{Name: "Build", DefinitionOfDone: "It builds."}, tasks: []Task{task}, needle: "description is blank"},
-		{name: "not in backlog", next: task, tasks: []Task{}, needle: "did not preserve that assignment"},
+		{
+			name:   "blank description",
+			plan:   plan{Tasks: []Task{{Name: "Build", DefinitionOfDone: "It builds."}}, Next: polytype.Nullable[int]{Present: true, Value: 0}},
+			needle: "description is blank",
+		},
+		{
+			name:   "next out of range",
+			plan:   plan{Tasks: []Task{task}, Next: polytype.Nullable[int]{Present: true, Value: 3}},
+			needle: "out of range",
+		},
+		{
+			name:   "duplicate names",
+			plan:   plan{Tasks: []Task{task, task}, Next: polytype.Nullable[int]{Present: true, Value: 0}},
+			needle: "duplicate task name",
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			calls := 0
 			f := &fake{answer: func(ctx context.Context, session, prompt string, schema json.RawMessage, emit func(AgentEvent) error) (string, error) {
-				if err := writeTestBacklog(plannerBacklog(prompt), "ship", test.tasks); err != nil {
-					return "", err
-				}
-				raw, err := json.Marshal(plan{Next: nullableTask(test.next)})
+				calls++
+				raw, err := json.Marshal(test.plan)
 				return string(raw), err
 			}}
 			err := runTest(t, func(ctx context.Context) error {
@@ -585,51 +608,17 @@ func TestLoopRejectsInconsistentPlannerData(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), test.needle) {
 				t.Fatalf("error = %v, want %q", err, test.needle)
 			}
-		})
-	}
-}
-
-func TestLoopShowsThePlannerItsInvalidBacklog(t *testing.T) {
-	turns := 0
-	f := &fake{answer: func(ctx context.Context, session, prompt string, schema json.RawMessage, emit func(AgentEvent) error) (string, error) {
-		turns++
-		if turns == 1 {
-			if err := os.WriteFile(plannerBacklog(prompt), []byte("---\ngoal: changed\ntasks: []\n---\n"), 0o644); err != nil {
-				return "", err
+			if calls != 1 {
+				t.Fatalf("planner calls = %d, want 1", calls)
 			}
-			return `{"next":null}`, nil
-		}
-		if !strings.Contains(prompt, "goal was changed") {
-			return "", errors.New("planner was not shown why its backlog was invalid")
-		}
-		if err := writeTestBacklog(plannerBacklog(prompt), "ship", []Task{}); err != nil {
-			return "", err
-		}
-		return `{"next":null}`, nil
-	}}
-	err := runTest(t, func(ctx context.Context) error {
-		planner := NewSession(ctx, "planner", f, "m", t.TempDir())
-		loop := Loop(ctx, "sprint", "ship", planner)
-		for range loop.Tasks {
-			t.Fatal("invalid backlog was yielded")
-		}
-		return loop.Err()
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if turns != 2 {
-		t.Fatalf("planner turns = %d, want repair turn", turns)
+		})
 	}
 }
 
 func TestLoopEndsTaskScopeOnBreak(t *testing.T) {
 	task := Task{Name: "Inspect", Description: "Establish the current behavior.", DefinitionOfDone: "The behavior is recorded."}
 	f := &fake{answer: func(ctx context.Context, session, prompt string, schema json.RawMessage, emit func(AgentEvent) error) (string, error) {
-		if err := writeTestBacklog(plannerBacklog(prompt), "inspect", []Task{task}); err != nil {
-			return "", err
-		}
-		raw, err := json.Marshal(plan{Next: nullableTask(task)})
+		raw, err := json.Marshal(plan{Tasks: []Task{task}, Next: polytype.Nullable[int]{Present: true, Value: 0}})
 		return string(raw), err
 	}}
 	var taskCtx context.Context
@@ -661,10 +650,7 @@ func TestLoopEndsTaskScopeOnBreak(t *testing.T) {
 func TestLoopEndsTaskScopeOnCancellation(t *testing.T) {
 	task := Task{Name: "Wait", Description: "Observe cancellation while work is active.", DefinitionOfDone: "The active task stops with its parent."}
 	f := &fake{answer: func(ctx context.Context, session, prompt string, schema json.RawMessage, emit func(AgentEvent) error) (string, error) {
-		if err := writeTestBacklog(plannerBacklog(prompt), "wait", []Task{task}); err != nil {
-			return "", err
-		}
-		raw, err := json.Marshal(plan{Next: nullableTask(task)})
+		raw, err := json.Marshal(plan{Tasks: []Task{task}, Next: polytype.Nullable[int]{Present: true, Value: 0}})
 		return string(raw), err
 	}}
 	ctx, cancel := context.WithCancel(t.Context())
@@ -691,20 +677,6 @@ func TestLoopEndsTaskScopeOnCancellation(t *testing.T) {
 	if _, err := worker.Generate[Text](taskCtx, "too late"); err == nil || !strings.Contains(err.Error(), "scope ended") {
 		t.Fatalf("task-owned session remained usable: %v", err)
 	}
-}
-
-func plannerBacklog(prompt string) string {
-	marker := "Its revisable backlog is "
-	rest := prompt[strings.Index(prompt, marker)+len(marker):]
-	return strings.TrimSuffix(strings.Fields(rest)[0], ".")
-}
-
-func writeTestBacklog(file, goal string, tasks []Task) error {
-	front, err := json.Marshal(backlog{Goal: goal, Tasks: tasks})
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(file, append(append([]byte("---\n"), front...), []byte("\n---\n")...), 0o644)
 }
 
 func TestAttestEventFixture(t *testing.T) {
@@ -997,4 +969,61 @@ func readRecords[T any](t *testing.T, file string) []T {
 		records = append(records, e)
 	}
 	return records
+}
+
+// TestCancelledRunStaysCancelled replays the shared fixture through the
+// runtime's own fold. The browser reducer reads the same file.
+func TestCancelledRunStaysCancelled(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("internal", "observation", "testdata", "cancelled-run.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := observation.Open(nil, "run-1", "cancelled", t.TempDir())
+	defer func() { _ = store.Close() }()
+	r := &run{store: store}
+	for _, line := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+		var record LifecycleRecord
+		if err := json.Unmarshal(line, &record); err != nil {
+			t.Fatalf("decode %s: %v", line, err)
+		}
+		r.observeLifecycle(record.Scope, record.Session.Value, record.Turn.Value, record.Event, append(json.RawMessage(nil), line...))
+	}
+	if got := store.Snapshot().Run; got.Status != observation.StatusCancelled {
+		t.Fatalf("status = %q (error %q), want cancelled", got.Status, got.Error)
+	}
+}
+
+// TestTurnRecordsValidationFailure is issue 144 item 1: a result the typed
+// output rejects is the turn's own outcome, not a clean turn beside a failing
+// scope.
+func TestTurnRecordsValidationFailure(t *testing.T) {
+	f := &fake{answer: func(ctx context.Context, session, prompt string, schema json.RawMessage, emit func(AgentEvent) error) (string, error) {
+		return `{"objections": "not a list"}`, nil
+	}}
+	var dir string
+	if err := Run(Project(t.Context(), t.TempDir()), "validate", func(ctx context.Context) error {
+		dir = runDir(ctx)
+		s := NewSession(ctx, "coder", f, "m", "/w")
+		if _, err := s.Generate[review](ctx, "review"); err == nil {
+			t.Error("a result that does not validate was accepted")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var ended []TurnEnded
+	if err := runlog.Read[LifecycleRecord](t.Context(), dir, func(e LifecycleRecord) error {
+		if turn, ok := e.Event.(TurnEnded); ok {
+			ended = append(ended, turn)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(ended) != 1 {
+		t.Fatalf("recorded %d turn_ended records, want 1", len(ended))
+	}
+	if !strings.Contains(ended[0].Error, "objections") || ended[0].Result == "" {
+		t.Fatalf("turn_ended = %+v, want the validation failure and the result it rejected", ended[0])
+	}
 }

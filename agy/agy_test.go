@@ -34,8 +34,8 @@ func TestAdapterCreatesResumesStructuresAndTranslates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(raw) != `{"answer":"valid"}` {
-		t.Fatalf("result = %s", raw)
+	if string(raw.Output) != `{"answer":"valid"}` {
+		t.Fatalf("result = %s", raw.Output)
 	}
 	if !slices.Contains(eventTypes(events), "session.text.ended") || !slices.Contains(eventTypes(events), "session.step.ended") {
 		t.Fatalf("events = %v", eventTypes(events))
@@ -48,8 +48,8 @@ func TestAdapterCreatesResumesStructuresAndTranslates(t *testing.T) {
 		t.Fatalf("native session provenance = %#v", nativeRef)
 	}
 	text, err := adapter.RunTurn(t.Context(), sessionID, "TEXT", nil, func(gimble.AgentEvent) error { return nil })
-	if err != nil || string(text) != `"OK"` {
-		t.Fatalf("text result=%s error=%v", text, err)
+	if err != nil || string(text.Output) != `"OK"` {
+		t.Fatalf("text result=%s error=%v", text.Output, err)
 	}
 
 	invocations := readInvocations(t, record)
@@ -72,7 +72,7 @@ func TestAdapterSteerInterruptsAndResumesInsideTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
-	var raw json.RawMessage
+	var raw gimble.TurnResult
 	var runErr error
 	go func() {
 		raw, runErr = adapter.RunTurn(context.Background(), sessionID, "WAIT", nil, func(gimble.AgentEvent) error { return nil })
@@ -87,8 +87,8 @@ func TestAdapterSteerInterruptsAndResumesInsideTurn(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("steered turn did not finish")
 	}
-	if runErr != nil || string(raw) != `"steered"` {
-		t.Fatalf("result=%s error=%v", raw, runErr)
+	if runErr != nil || string(raw.Output) != `"steered"` {
+		t.Fatalf("result=%s error=%v", raw.Output, runErr)
 	}
 	invocations := readInvocations(t, record)
 	if len(invocations) != 2 || flagValue(invocations[1], "-p") != "STEER" {

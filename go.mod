@@ -17,7 +17,6 @@ require (
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/tylergannon/polytype v1.0.0-rc.12.0.20260911210434-38f05b1ba899
 	github.com/tylergannon/skgo v0.4.0
-	go.yaml.in/yaml/v4 v4.0.0-rc.6
 	golang.org/x/sync v0.23.0
 )
 

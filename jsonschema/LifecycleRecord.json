@@ -101,14 +101,29 @@
 "interval":{"type":"integer","description":"A Duration represents the elapsed time between two instants as an int64 nanosecond count. The representation limits the largest representable duration to approximately 290 years."}
 },"required":["kind","reviewer","worker","instruction","interval"],"additionalProperties":false},
 {"type":"object",
-"description":"TurnEnded records the result and accounting for one agent turn.","properties":{
+"description":"TurnEnded records the result and accounting for one agent turn. Usage is what the turn spent, per model: the harness's own turn report when it stated one, and otherwise the turn's step events summed under the session's model.","properties":{
 "kind":{"type":"string","const":"turn_ended"},
 "result":{"type":"string","description":"JSONText is JSON source text carried opaquely by an event. Complete events contain one encoded value; delta events may contain only the next fragment. Text preserves provider-specific payloads while the event remains a closed Polytype shape."},
 "error":{"type":"string"},
-"tokens":{"type":"array","items":{"type":"string","description":"JSONText is JSON source text carried opaquely by an event. Complete events contain one encoded value; delta events may contain only the next fragment. Text preserves provider-specific payloads while the event remains a closed Polytype shape."}},
+"usage":{"type":"array","items":{"type":"object",
+"description":"ModelUsage is what one model spent, under its name. The run log carries a turn's usage as one entry per model: the type grammar the log's schema is generated from has no map shape.","properties":{
+"model":{"type":"string"},
+"cost":{"type":"number"},
+"tokens":{"type":"object",
+"description":"Tokens is what one model read and wrote, in the five fields every adapter reports. A field the provider does not report is zero: zero is a number, and no field is ever omitted.","properties":{
+"input":{"type":"number","description":"Input is the uncached prompt: the provider's input tokens less the cache read (and less the cache write where the provider folds it in)."},
+"output":{"type":"number","description":"Output is the visible output: the provider's output tokens less the reasoning tokens."},
+"reasoning":{"type":"number","description":"Reasoning is the reasoning or thinking tokens."},
+"cache":{"type":"object",
+"description":"Cache is the prompt tokens the cache served and the prompt tokens written into it.","properties":{
+"read":{"type":"number","description":"Read is the prompt tokens served from cache."},
+"write":{"type":"number","description":"Write is the prompt tokens written to cache."}
+},"required":["read","write"],"additionalProperties":false}
+},"required":["input","output","reasoning","cache"],"additionalProperties":false}
+},"required":["model","cost","tokens"],"additionalProperties":false}},
 "duration":{"type":"integer","description":"A Duration represents the elapsed time between two instants as an int64 nanosecond count. The representation limits the largest representable duration to approximately 290 years."},
 "interrupted":{"type":"boolean"}
-},"required":["kind","result","error","tokens","duration","interrupted"],"additionalProperties":false},
+},"required":["kind","result","error","usage","duration","interrupted"],"additionalProperties":false},
 {"type":"object",
 "description":"TurnStarted records the beginning of one agent turn.","properties":{
 "kind":{"type":"string","const":"turn_started"},

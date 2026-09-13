@@ -1,0 +1,176 @@
+Every turn_ended lifecycle record from run.jsonl, run 20260912-204128.issue-149
+
+{
+ "seq": 12,
+ "time": "2026-09-13T02:41:32.965003Z",
+ "scope": "codex.1",
+ "session": "codex.1/codex.1",
+ "turn": "codex.1/codex.1/turn.1",
+ "event": {
+  "duration": 3736555500,
+  "error": "",
+  "interrupted": false,
+  "kind": "turn_ended",
+  "result": "\"Latency is the time it takes to complete one operation or deliver one result. Throughput is the amount of work completed or data delivered per unit of time.\"",
+  "usage": [
+   {
+    "model": "gpt-5.6-luna",
+    "cost": 0,
+    "tokens": {
+     "input": 10808,
+     "output": 35,
+     "reasoning": 0,
+     "cache": {
+      "read": 9984,
+      "write": 0
+     }
+    }
+   }
+  ]
+ }
+}
+{
+ "seq": 14,
+ "time": "2026-09-13T02:41:33.162963Z",
+ "scope": "claude.1",
+ "session": "claude.1/claude.1",
+ "turn": "claude.1/claude.1/turn.1",
+ "event": {
+  "duration": 4361399000,
+  "error": "",
+  "interrupted": false,
+  "kind": "turn_ended",
+  "result": "\"Latency is the time delay for a single request to complete from start to finish, while throughput is the number of requests or tasks that can be processed in a given time period. You can have low latency (fast individual requests) but low throughput (few of them processed per second), or vice versa.\"",
+  "usage": [
+   {
+    "model": "claude-haiku-4-5-20251001",
+    "cost": 0.0195637,
+    "tokens": {
+     "input": 10,
+     "output": 72,
+     "reasoning": 116,
+     "cache": {
+      "read": 29157,
+      "write": 7849
+     }
+    }
+   }
+  ]
+ }
+}
+{
+ "seq": 16,
+ "time": "2026-09-13T02:41:33.550701Z",
+ "scope": "agy.1",
+ "session": "agy.1/agy.1",
+ "turn": "agy.1/agy.1/turn.1",
+ "event": {
+  "duration": 4749209709,
+  "error": "",
+  "interrupted": false,
+  "kind": "turn_ended",
+  "result": "\"**Latency** measures the time delay it takes for a single request or unit of data to travel from its source to its destination. In contrast, **throughput** measures the total volume of data or requests successfully processed or transmitted over a given period of time.\\n\"",
+  "usage": [
+   {
+    "model": "gemini-3.8-flash-low",
+    "cost": 0,
+    "tokens": {
+     "input": 14863,
+     "output": 51,
+     "reasoning": 185,
+     "cache": {
+      "read": 0,
+      "write": 0
+     }
+    }
+   }
+  ]
+ }
+}
+{
+ "seq": 18,
+ "time": "2026-09-13T02:41:37.786411Z",
+ "scope": "codex.1",
+ "session": "codex.1/codex.1",
+ "turn": "codex.1/codex.1/turn.2",
+ "event": {
+  "duration": 4821342292,
+  "error": "",
+  "interrupted": false,
+  "kind": "turn_ended",
+  "result": "\"In a database, reducing latency by processing requests one at a time can lower throughput because fewer requests are handled concurrently. Conversely, increasing concurrency may improve throughput while making each request slower due to contention.\"",
+  "usage": [
+   {
+    "model": "gpt-5.6-luna",
+    "cost": 0,
+    "tokens": {
+     "input": 4384,
+     "output": 45,
+     "reasoning": 47,
+     "cache": {
+      "read": 20224,
+      "write": 0
+     }
+    }
+   }
+  ]
+ }
+}
+{
+ "seq": 21,
+ "time": "2026-09-13T02:41:38.121423Z",
+ "scope": "claude.1",
+ "session": "claude.1/claude.1",
+ "turn": "claude.1/claude.1/turn.2",
+ "event": {
+  "duration": 4958093375,
+  "error": "",
+  "interrupted": false,
+  "kind": "turn_ended",
+  "result": "\"Batching multiple requests together to maximize throughput can increase latency because individual requests must wait for the batch to fill before processing begins. Conversely, prioritizing low-latency responses by processing requests immediately and individually can reduce throughput because you lose the efficiency gains from parallel batch processing.\"",
+  "usage": [
+   {
+    "model": "claude-haiku-4-5-20251001",
+    "cost": 0.0053526,
+    "tokens": {
+     "input": 10,
+     "output": 66,
+     "reasoning": 162,
+     "cache": {
+      "read": 37006,
+      "write": 251
+     }
+    }
+   }
+  ]
+ }
+}
+{
+ "seq": 24,
+ "time": "2026-09-13T02:41:38.60739Z",
+ "scope": "agy.1",
+ "session": "agy.1/agy.1",
+ "turn": "agy.1/agy.1/turn.2",
+ "event": {
+  "duration": 5056630375,
+  "error": "",
+  "interrupted": false,
+  "kind": "turn_ended",
+  "result": "\"In request batching, a system delays incoming requests to process them together in bulk, which maximizes overall throughput by amortizing processing overhead. However, this directly degrades latency for individual items, as early-arriving requests must wait in a buffer rather than being handled immediately.\\n\"",
+  "usage": [
+   {
+    "model": "gemini-3.8-flash-low",
+    "cost": 0,
+    "tokens": {
+     "input": 15323,
+     "output": 54,
+     "reasoning": 214,
+     "cache": {
+      "read": 0,
+      "write": 0
+     }
+    }
+   }
+  ]
+ }
+}

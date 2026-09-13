@@ -11,7 +11,7 @@ import (
 	"github.com/tylergannon/gimble"
 )
 
-func TestProjectorBindsRawResponseAndNormalizesAccounting(t *testing.T) {
+func TestProjectorBindsRawResponseAndNormalizesTokens(t *testing.T) {
 	var events []gimble.AgentEvent
 	p := newProjector("thread-1", "turn-1", "gpt-test", func(event gimble.AgentEvent) error {
 		events = append(events, event)
@@ -21,7 +21,7 @@ func TestProjectorBindsRawResponseAndNormalizesAccounting(t *testing.T) {
 	mustProject(t, p.textDelta(json.RawMessage(`{"delta":"hel"}`)))
 	_, _, err := p.itemCompleted(json.RawMessage(`{"item":{"id":"msg-item","type":"agentMessage","text":"hello"}}`))
 	mustProject(t, err)
-	mustProject(t, p.rawResponseCompleted(json.RawMessage(`{"responseId":"resp_123","usage":{"input_tokens":100,"cached_input_tokens":25,"cache_write_input_tokens":5,"output_tokens":30,"reasoning_output_tokens":10}}`)))
+	mustProject(t, p.rawResponseCompleted(json.RawMessage(`{"responseId":"resp_123","usage":{"inputTokens":100,"cachedInputTokens":25,"cacheWriteInputTokens":5,"outputTokens":30,"reasoningOutputTokens":10}}`)))
 	if !slices.Contains(types(events), "session.step.ended") {
 		t.Fatal("settled rawResponse/completed did not end the tool-free step")
 	}
@@ -40,12 +40,15 @@ func TestProjectorBindsRawResponseAndNormalizesAccounting(t *testing.T) {
 	if started["assistantMessageID"] != streamed["assistantMessageID"] || streamed["assistantMessageID"] != ended["assistantMessageID"] {
 		t.Fatalf("provisional identity changed: %#v %#v %#v", started, streamed, ended)
 	}
-	if !jsonContains(streamedEvent.NativeRef, `"responseID":"resp_123"`) || !jsonContains(endedEvent.NativeRef, `"tokensAvailable":true`) || !jsonContains(endedEvent.NativeRef, `"costAvailable":false`) {
-		t.Fatalf("boundary/accounting audit missing: streamed=%s ended=%s", streamedEvent.NativeRef, endedEvent.NativeRef)
+	if !jsonContains(streamedEvent.NativeRef, `"responseID":"resp_123"`) {
+		t.Fatalf("response boundary not bound: streamed=%s", streamedEvent.NativeRef)
+	}
+	if ended["cost"] != float64(0) {
+		t.Fatalf("step cost = %#v, want 0: Codex states no cost", ended["cost"])
 	}
 	tokens := ended["tokens"].(map[string]any)
 	cache := tokens["cache"].(map[string]any)
-	if tokens["input"] != float64(70) || tokens["output"] != float64(20) || tokens["reasoning"] != float64(10) || cache["read"] != float64(25) || cache["write"] != float64(5) {
+	if tokens["input"] != float64(75) || tokens["output"] != float64(20) || tokens["reasoning"] != float64(10) || cache["read"] != float64(25) || cache["write"] != float64(5) {
 		t.Fatalf("normalized tokens = %#v", tokens)
 	}
 }
@@ -117,14 +120,27 @@ func TestProjectorCompletesResumedTurnWithoutRawResponse(t *testing.T) {
 	}
 }
 
-func TestNormalizeUsageDistinguishesKnownZeroFromNullableMissing(t *testing.T) {
-	known := normalizeUsage(map[string]any{"inputTokens": float64(0), "cachedInputTokens": float64(0), "cacheWriteInputTokens": float64(0), "outputTokens": float64(0), "reasoningOutputTokens": float64(0)}, true)
-	if !known.available {
-		t.Fatal("observed numeric zeros were marked unavailable")
-	}
-	missing := normalizeUsage(map[string]any{"inputTokens": nil, "outputTokens": float64(0)}, true)
-	if missing.available || missing.fieldAvailability["input"] || missing.fieldAvailability["output"] {
-		t.Fatalf("nullable/missing fields were marked available: %+v", missing)
+// The sample is thread/tokenUsage/updated verbatim from
+// ephemeral/research/issue-149/codex/turn2-sameproc.jsonl, where total is the
+// process's running sum and last is that turn's one model call.
+func TestProjectorFillsStepFromRecordedTokenUsage(t *testing.T) {
+	var events []gimble.AgentEvent
+	p := newProjector("01a0988c-e92a-7be3-a0dd-98e708d1b6e5", "01a0988d-1c26-78b2-a0fc-5e97d2295747", "gpt-5.6-luna", func(event gimble.AgentEvent) error {
+		events = append(events, event)
+		return nil
+	})
+	mustProject(t, p.itemStarted(json.RawMessage(`{"item":{"id":"message","type":"agentMessage"}}`)))
+	_, _, err := p.itemCompleted(json.RawMessage(`{"item":{"id":"message","type":"agentMessage","text":"done"}}`))
+	mustProject(t, err)
+	mustProject(t, p.tokenUsageUpdated(json.RawMessage(`{"threadId":"01a0988c-e92a-7be3-a0dd-98e708d1b6e5","turnId":"01a0988d-1c26-78b2-a0fc-5e97d2295747","tokenUsage":{"total":{"totalTokens":40531,"inputTokens":40508,"cachedInputTokens":29184,"cacheWriteInputTokens":0,"outputTokens":23,"reasoningOutputTokens":11},"last":{"totalTokens":20285,"inputTokens":20267,"cachedInputTokens":19200,"cacheWriteInputTokens":0,"outputTokens":18,"reasoningOutputTokens":11},"modelContextWindow":258400}}`)))
+	mustProject(t, p.turnCompleted(json.RawMessage(`{"turn":{"status":"completed"}}`)))
+
+	var ended map[string]any
+	decodeData(t, firstType(t, events, "session.step.ended"), &ended)
+	tokens := ended["tokens"].(map[string]any)
+	cache := tokens["cache"].(map[string]any)
+	if tokens["input"] != float64(1067) || tokens["output"] != float64(7) || tokens["reasoning"] != float64(11) || cache["read"] != float64(19200) || cache["write"] != float64(0) {
+		t.Fatalf("tokens from tokenUsage.last = %#v", tokens)
 	}
 }
 

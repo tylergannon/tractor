@@ -32,7 +32,7 @@ func (a *noisyWorker) CreateSession(ctx context.Context, model, workdir string) 
 	return a.inner.CreateSession(ctx, model, workdir)
 }
 
-func (a *noisyWorker) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, emit func(gimble.AgentEvent) error) (json.RawMessage, error) {
+func (a *noisyWorker) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, emit func(gimble.AgentEvent) error) (gimble.TurnResult, error) {
 	return a.inner.RunTurn(ctx, sessionID, prompt, schema, func(event gimble.AgentEvent) error {
 		if err := emit(event); err != nil {
 			return err
@@ -99,7 +99,7 @@ func (a *measuredReviewer) CreateSession(ctx context.Context, model, workdir str
 	return a.inner.CreateSession(ctx, model, workdir)
 }
 
-func (a *measuredReviewer) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, emit func(gimble.AgentEvent) error) (json.RawMessage, error) {
+func (a *measuredReviewer) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, emit func(gimble.AgentEvent) error) (gimble.TurnResult, error) {
 	for old := a.maxPrompt.Load(); int64(len(prompt)) > old && !a.maxPrompt.CompareAndSwap(old, int64(len(prompt))); old = a.maxPrompt.Load() {
 	}
 	if strings.Contains(prompt, "[gap] Supervisor activity items") {

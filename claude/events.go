@@ -29,6 +29,7 @@ type projector struct {
 	reasoningOpen bool
 	pendingTools  map[string]bool
 	usage         claudeUsage
+	report        map[string]gimble.Usage
 }
 
 type blockState struct {
@@ -40,10 +41,7 @@ type blockState struct {
 }
 
 type claudeUsage struct {
-	input, output, outputTotal, reasoning, cacheRead, cacheWrite float64
-	available                                                    bool
-	inputOK, outputOK, reasoningOK, cacheReadOK, cacheWriteOK    bool
-	raw                                                          map[string]any
+	input, outputTotal, reasoning, cacheRead, cacheWrite float64
 }
 
 func newProjector(sessionID, model string, emit func(gimble.AgentEvent) error) *projector {
@@ -86,6 +84,8 @@ func (p *projector) raw(raw json.RawMessage) error {
 		return p.toolResults(envelope)
 	case "tool_progress":
 		return p.toolProgress(envelope)
+	case "result":
+		return p.result(envelope)
 	}
 	return nil
 }
@@ -110,7 +110,8 @@ func (p *projector) stream(event, envelope map[string]any) error {
 		p.stopReason = ""
 		p.blocks = make(map[int]*blockState)
 		p.pendingTools = make(map[string]bool)
-		p.usage = normalizeClaudeUsage(object(message["usage"]), message["usage"] != nil)
+		p.usage = claudeUsage{}
+		p.usage.merge(object(message["usage"]))
 		ref["messageID"] = p.messageID
 		return p.event("session.step.started", map[string]any{
 			"assistantMessageID": p.messageID, "agent": "claude",
@@ -343,23 +344,10 @@ func (p *projector) endStep(ref map[string]any) error {
 		return nil
 	}
 	ref["messageID"] = p.messageID
-	accounting := map[string]any{
-		"tokensAvailable": p.usage.available, "costAvailable": false, "costSource": "unavailable",
-		"fieldAvailability": map[string]bool{
-			"input": p.usage.inputOK, "output": p.usage.outputOK && p.usage.reasoningOK,
-			"reasoning": p.usage.reasoningOK, "cacheRead": p.usage.cacheReadOK, "cacheWrite": p.usage.cacheWriteOK,
-		},
-	}
-	if p.usage.raw != nil {
-		accounting["rawProviderAccounting"] = p.usage.raw
-	}
-	ref["accounting"] = accounting
+	// Claude Code states no per-step cost; the turn report carries the cost.
 	data := map[string]any{
 		"assistantMessageID": p.messageID, "finish": claudeFinish(p.stopReason), "cost": 0,
-		"tokens": map[string]any{
-			"input": p.usage.input, "output": p.usage.output, "reasoning": p.usage.reasoning,
-			"cache": map[string]any{"read": p.usage.cacheRead, "write": p.usage.cacheWrite},
-		},
+		"tokens": p.usage.tokens(),
 	}
 	if p.stopReason != "" {
 		data["rawFinish"] = p.stopReason
@@ -387,46 +375,87 @@ func (p *projector) nativeRef(envelope map[string]any, itemID string) map[string
 	return ref
 }
 
-func normalizeClaudeUsage(value map[string]any, present bool) claudeUsage {
-	u := claudeUsage{available: present}
-	u.merge(value)
-	return u
+// result records the turn report from Claude Code's final message. Every
+// accounting figure in `result` is per-turn, not a running total for the
+// conversation, so the report is the turn's and replaces any earlier one.
+func (p *projector) result(envelope map[string]any) error {
+	report := make(map[string]gimble.Usage)
+	for model, raw := range object(envelope["modelUsage"]) {
+		entry := object(raw)
+		if entry == nil {
+			continue
+		}
+		report[model] = gimble.Usage{
+			Cost: numberValue(entry["costUSD"]),
+			Tokens: claudeTokens(numberValue(entry["inputTokens"]), numberValue(entry["outputTokens"]),
+				numberValue(entry["thinkingTokens"]), numberValue(entry["cacheReadInputTokens"]),
+				numberValue(entry["cacheCreationInputTokens"])),
+		}
+	}
+	if len(report) == 0 {
+		usage, cost := object(envelope["usage"]), numberValue(envelope["total_cost_usd"])
+		if usage == nil && envelope["total_cost_usd"] == nil {
+			return nil
+		}
+		var u claudeUsage
+		u.merge(usage)
+		report[p.model] = gimble.Usage{Cost: cost, Tokens: u.tokens()}
+	}
+	p.report = report
+	return nil
 }
 
+// turnUsage is the harness's own report for the turn, or nil when the turn
+// ended without one.
+func (p *projector) turnUsage() map[string]gimble.Usage {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.report
+}
+
+// claudeTokens is the five-field mapping, for one Claude accounting record in
+// either spelling. Anthropic's input tokens are already the non-cached count,
+// with cache read and cache creation reported separately, so input passes
+// through unchanged; thinking tokens are a subset of the output tokens, so
+// the visible output is the output less the thinking.
+func claudeTokens(input, output, reasoning, cacheRead, cacheWrite float64) gimble.Tokens {
+	var tokens gimble.Tokens
+	tokens.Input = input
+	tokens.Output = max(0, output-reasoning)
+	tokens.Reasoning = reasoning
+	tokens.Cache.Read = cacheRead
+	tokens.Cache.Write = cacheWrite
+	return tokens
+}
+
+func (u claudeUsage) tokens() gimble.Tokens {
+	return claudeTokens(u.input, u.outputTotal, u.reasoning, u.cacheRead, u.cacheWrite)
+}
+
+// merge folds one stream usage object in: message_start states the prompt
+// side and message_delta the final output. A field the message omits keeps
+// what an earlier message stated, and a field neither states is zero.
 func (u *claudeUsage) merge(value map[string]any) {
 	if value == nil {
 		return
 	}
-	if u.raw == nil {
-		u.raw = make(map[string]any)
-	}
-	for key, raw := range value {
-		u.raw[key] = raw
-	}
 	if n, ok := number(value["input_tokens"]); ok {
 		u.input = n
-		u.inputOK = true
 	}
 	if n, ok := number(value["output_tokens"]); ok {
 		u.outputTotal = n
-		u.outputOK = true
 	}
 	if n, ok := number(value["cache_read_input_tokens"]); ok {
 		u.cacheRead = n
-		u.cacheReadOK = true
 	}
 	if n, ok := number(value["cache_creation_input_tokens"]); ok {
 		u.cacheWrite = n
-		u.cacheWriteOK = true
 	}
 	if details := object(value["output_tokens_details"]); details != nil {
 		if n, ok := number(details["thinking_tokens"]); ok {
 			u.reasoning = n
-			u.reasoningOK = true
 		}
 	}
-	u.output = max(0, u.outputTotal-u.reasoning)
-	u.available = u.inputOK && u.outputOK && u.reasoningOK && u.cacheReadOK && u.cacheWriteOK
 }
 
 func claudeFinish(raw string) string {

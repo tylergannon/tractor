@@ -20,7 +20,7 @@ func TestPublishedEventTypesAreUsableOutsideGimble(t *testing.T) {
 		gimble.SessionCreated{},
 		gimble.SessionClosed{},
 		gimble.TurnStarted{},
-		gimble.TurnEnded{Tokens: []gimble.JSONText{}},
+		gimble.TurnEnded{Usage: []gimble.ModelUsage{}},
 		gimble.SuperviseAttached{},
 		gimble.Steer{},
 		gimble.Interrupt{},

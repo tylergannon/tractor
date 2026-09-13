@@ -46,9 +46,6 @@ type toolState struct {
 
 type normalizedUsage struct {
 	input, output, reasoning, cacheRead, cacheWrite float64
-	available                                       bool
-	fieldAvailability                               map[string]bool
-	raw                                             map[string]any
 }
 
 func newProjector(sessionID, turnID, model string, emit func(gimble.AgentEvent) error) *projector {
@@ -344,7 +341,7 @@ func (p *projector) rawResponseCompleted(params json.RawMessage) error {
 	}
 	p.responseID = responseID
 	if usage, ok := value["usage"].(map[string]any); ok {
-		p.usage = normalizeUsage(usage, true)
+		p.usage = normalizeUsage(usage)
 	} else {
 		p.usage = normalizedUsage{}
 	}
@@ -354,6 +351,30 @@ func (p *projector) rawResponseCompleted(params json.RawMessage) error {
 	}
 	if p.pendingTools == 0 {
 		return p.endStep(params)
+	}
+	return nil
+}
+
+// tokenUsageUpdated fills the open step from the turn's most recent model
+// call. Only tokenUsage.last is read: tokenUsage.total is cumulative per
+// app-server process, so it is never one step's figure. On a turn that
+// produced no rawResponse/completed this is the only usage there is.
+func (p *projector) tokenUsageUpdated(params json.RawMessage) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.stepOpen || p.usage != (normalizedUsage{}) {
+		return nil
+	}
+	var value struct {
+		TokenUsage struct {
+			Last map[string]any `json:"last"`
+		} `json:"tokenUsage"`
+	}
+	if err := json.Unmarshal(params, &value); err != nil {
+		return fmt.Errorf("codex: decode thread/tokenUsage/updated: %w", err)
+	}
+	if value.TokenUsage.Last != nil {
+		p.usage = normalizeUsage(value.TokenUsage.Last)
 	}
 	return nil
 }
@@ -378,14 +399,6 @@ func (p *projector) endStep(params json.RawMessage) error {
 		return errors.New("codex: step ended with an open text or reasoning part")
 	}
 	ref := p.nativeRef(params)
-	accounting := map[string]any{"tokensAvailable": p.usage.available, "costAvailable": false, "costSource": "unavailable"}
-	if len(p.usage.fieldAvailability) > 0 {
-		accounting["fieldAvailability"] = p.usage.fieldAvailability
-	}
-	if p.usage.raw != nil {
-		accounting["rawProviderAccounting"] = p.usage.raw
-	}
-	ref["accounting"] = accounting
 	err := p.event("session.step.ended", map[string]any{
 		"assistantMessageID": p.messageID, "finish": "unknown", "cost": 0,
 		"tokens": map[string]any{
@@ -543,30 +556,23 @@ func stringField(value map[string]any, keys ...string) string {
 	return ""
 }
 
-func normalizeUsage(value map[string]any, present bool) normalizedUsage {
-	get := func(keys ...string) (float64, bool) {
-		for _, key := range keys {
-			if number, ok := value[key].(float64); ok {
-				return number, true
-			}
-		}
-		return 0, false
+// normalizeUsage maps Codex's counters onto the five fields every adapter
+// reports. The names are camelCase, the only spelling the app-server emits.
+// cachedInputTokens is a subset of inputTokens and reasoningOutputTokens a
+// subset of outputTokens, so each is subtracted; whether cacheWriteInputTokens
+// is also inside inputTokens is unverified, so it is not. A counter the
+// notification omits is zero.
+func normalizeUsage(value map[string]any) normalizedUsage {
+	get := func(key string) float64 {
+		number, _ := value[key].(float64)
+		return number
 	}
-	input, inputOK := get("inputTokens", "input_tokens")
-	cached, cachedOK := get("cachedInputTokens", "cached_input_tokens")
-	cacheWrite, cacheWriteOK := get("cacheWriteInputTokens", "cache_write_input_tokens")
-	reasoning, reasoningOK := get("reasoningOutputTokens", "reasoning_output_tokens")
-	output, outputOK := get("outputTokens", "output_tokens")
-	fields := map[string]bool{
-		"input": inputOK && cachedOK && cacheWriteOK, "output": outputOK && reasoningOK,
-		"reasoning": reasoningOK, "cacheRead": cachedOK, "cacheWrite": cacheWriteOK,
-	}
-	available := present
-	for _, fieldAvailable := range fields {
-		available = available && fieldAvailable
-	}
+	cached, reasoning := get("cachedInputTokens"), get("reasoningOutputTokens")
 	return normalizedUsage{
-		input: max(0, input-cached-cacheWrite), output: max(0, output-reasoning), reasoning: reasoning,
-		cacheRead: cached, cacheWrite: cacheWrite, available: available, fieldAvailability: fields, raw: value,
+		input:      max(0, get("inputTokens")-cached),
+		output:     max(0, get("outputTokens")-reasoning),
+		reasoning:  reasoning,
+		cacheRead:  cached,
+		cacheWrite: get("cacheWriteInputTokens"),
 	}
 }

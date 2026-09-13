@@ -112,11 +112,14 @@ type TurnStarted struct {
 
 func (TurnStarted) lifecycleEvent() {}
 
-// TurnEnded records the result and accounting for one agent turn.
+// TurnEnded records the result and accounting for one agent turn. Usage is
+// what the turn spent, per model: the harness's own turn report when it
+// stated one, and otherwise the turn's step events summed under the
+// session's model.
 type TurnEnded struct {
 	Result      JSONText      `json:"result"`
 	Error       string        `json:"error"`
-	Tokens      []JSONText    `json:"tokens"`
+	Usage       []ModelUsage  `json:"usage"`
 	Duration    time.Duration `json:"duration"`
 	Interrupted bool          `json:"interrupted"`
 }

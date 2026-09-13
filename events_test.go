@@ -96,7 +96,7 @@ func TestLifecycleEventUnionRoundTripsEveryVariant(t *testing.T) {
 		{"session_created", SessionCreated{Name: "coder", Adapter: "codex", Model: "gpt", Workdir: "/work", Parent: "researcher.1"}},
 		{"session_closed", SessionClosed{}},
 		{"turn_started", TurnStarted{Prompt: "build", OutputType: "gimble.Text"}},
-		{"turn_ended", TurnEnded{Result: JSONText(`"done"`), Tokens: []JSONText{JSONText(`{"input":1}`)}, Duration: time.Second}},
+		{"turn_ended", TurnEnded{Result: JSONText(`"done"`), Usage: []ModelUsage{{Model: "m", Cost: 0.5, Tokens: Tokens{Input: 1}}}, Duration: time.Second}},
 		{"supervise_attached", SuperviseAttached{Reviewer: "reviewer.1", Worker: "worker.1/turn.1", Instruction: "watch", Interval: time.Minute}},
 		{"steer", Steer{Target: "worker.1", Source: "reviewer.1", Message: "fix it", Landed: true}},
 		{"interrupt", Interrupt{Target: "worker.1", Source: "operator"}},

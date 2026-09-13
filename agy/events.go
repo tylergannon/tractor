@@ -41,12 +41,13 @@ type toolInfo struct {
 }
 
 type result struct {
-	ConversationID   string         `json:"conversation_id"`
-	Status           string         `json:"status"`
-	Response         string         `json:"response"`
-	Error            string         `json:"error"`
-	StructuredOutput any            `json:"structured_output"`
-	Usage            map[string]any `json:"usage"`
+	ConversationID   string `json:"conversation_id"`
+	Status           string `json:"status"`
+	Response         string `json:"response"`
+	Error            string `json:"error"`
+	StructuredOutput any    `json:"structured_output"`
+	// The envelope's own usage is cumulative over the conversation, so it is
+	// deliberately not decoded: the steps are the source.
 }
 
 func (e envelope) conversationID() string {
@@ -128,7 +129,7 @@ func (p *projector) project(update *stepUpdate) error {
 		if err := p.event("session.step.started", map[string]any{
 			"assistantMessageID": step.messageID, "agent": "agy",
 			"model": map[string]any{"providerID": "google", "id": p.model},
-		}, p.ref(step, update.Usage)); err != nil {
+		}, p.ref(step)); err != nil {
 			return err
 		}
 	} else if step.kind != update.StepType {
@@ -142,12 +143,12 @@ func (p *projector) project(update *stepUpdate) error {
 		if update.TextDelta != "" {
 			if !step.textOpen {
 				step.textOpen = true
-				if err := p.event("session.text.started", map[string]any{"assistantMessageID": step.messageID, "ordinal": 0}, p.ref(step, nil)); err != nil {
+				if err := p.event("session.text.started", map[string]any{"assistantMessageID": step.messageID, "ordinal": 0}, p.ref(step)); err != nil {
 					return err
 				}
 			}
 			step.text.WriteString(update.TextDelta)
-			if err := p.event("session.text.delta", map[string]any{"assistantMessageID": step.messageID, "ordinal": 0, "delta": update.TextDelta}, p.ref(step, nil)); err != nil {
+			if err := p.event("session.text.delta", map[string]any{"assistantMessageID": step.messageID, "ordinal": 0, "delta": update.TextDelta}, p.ref(step)); err != nil {
 				return err
 			}
 		}
@@ -159,7 +160,7 @@ func (p *projector) project(update *stepUpdate) error {
 		return nil
 	}
 	if step.kind == "agent_response" && step.textOpen {
-		if err := p.event("session.text.ended", map[string]any{"assistantMessageID": step.messageID, "ordinal": 0, "text": step.text.String()}, p.ref(step, nil)); err != nil {
+		if err := p.event("session.text.ended", map[string]any{"assistantMessageID": step.messageID, "ordinal": 0, "text": step.text.String()}, p.ref(step)); err != nil {
 			return err
 		}
 		step.textOpen = false
@@ -183,7 +184,7 @@ func (p *projector) projectTool(step *projectedStep, update *stepUpdate) error {
 	}
 	if !step.toolCalled {
 		step.toolCalled = true
-		ref := p.ref(step, nil)
+		ref := p.ref(step)
 		input := objectValue(info.Parameters)
 		inputRaw, err := json.Marshal(input)
 		if err != nil {
@@ -206,12 +207,12 @@ func (p *projector) projectTool(step *projectedStep, update *stepUpdate) error {
 		return p.event("session.tool.failed", map[string]any{
 			"assistantMessageID": step.messageID, "id": step.itemID, "executed": true,
 			"error": map[string]any{"type": "tool", "message": outputText(info.Error)},
-		}, p.ref(step, nil))
+		}, p.ref(step))
 	}
 	return p.event("session.tool.success", map[string]any{
 		"assistantMessageID": step.messageID, "id": step.itemID, "executed": true,
 		"content": []any{map[string]any{"type": "text", "text": outputText(info.Output)}},
-	}, p.ref(step, nil))
+	}, p.ref(step))
 }
 
 // agy reports its schema-returning finish tool as ACTIVE, then puts the
@@ -236,14 +237,14 @@ func (p *projector) finishResult(result *result) error {
 			if err := p.event("session.tool.success", map[string]any{
 				"assistantMessageID": step.messageID, "id": step.itemID, "executed": true,
 				"content": []any{map[string]any{"type": "text", "text": outputText(result.StructuredOutput)}},
-			}, p.ref(step, nil)); err != nil {
+			}, p.ref(step)); err != nil {
 				return err
 			}
 		} else {
 			if err := p.event("session.tool.failed", map[string]any{
 				"assistantMessageID": step.messageID, "id": step.itemID, "executed": true,
 				"error": map[string]any{"type": "result", "message": result.Error},
-			}, p.ref(step, nil)); err != nil {
+			}, p.ref(step)); err != nil {
 				return err
 			}
 		}
@@ -255,7 +256,7 @@ func (p *projector) finishResult(result *result) error {
 }
 
 func (p *projector) endStep(step *projectedStep, rawUsage map[string]any) error {
-	if err := p.event("session.step.streamed", map[string]any{"assistantMessageID": step.messageID}, p.ref(step, nil)); err != nil {
+	if err := p.event("session.step.streamed", map[string]any{"assistantMessageID": step.messageID}, p.ref(step)); err != nil {
 		return err
 	}
 	usage := normalizeUsage(rawUsage)
@@ -269,7 +270,7 @@ func (p *projector) endStep(step *projectedStep, rawUsage map[string]any) error 
 			"input": usage.input, "output": usage.output, "reasoning": usage.reasoning,
 			"cache": map[string]any{"read": usage.cacheRead, "write": usage.cacheWrite},
 		},
-	}, p.ref(step, rawUsage)); err != nil {
+	}, p.ref(step)); err != nil {
 		return err
 	}
 	step.ended = true
@@ -289,19 +290,12 @@ func (p *projector) event(eventType string, data map[string]any, nativeRef map[s
 	return p.emit(gimble.AgentEvent{Type: eventType, Data: raw, NativeRef: ref})
 }
 
-func (p *projector) ref(step *projectedStep, rawUsage map[string]any) map[string]any {
+func (p *projector) ref(step *projectedStep) map[string]any {
 	ref := map[string]any{
 		"provider": "agy", "sessionID": p.nativeSessionID(), "messageID": step.messageID,
 	}
 	if step.kind == "tool" {
 		ref["itemID"] = step.itemID
-	}
-	if rawUsage != nil {
-		usage := normalizeUsage(rawUsage)
-		ref["accounting"] = map[string]any{
-			"tokensAvailable": usage.available, "costAvailable": false, "costSource": "unavailable",
-			"fieldAvailability": usage.fields, "rawProviderAccounting": rawUsage,
-		}
 	}
 	return ref
 }
@@ -315,29 +309,24 @@ func (p *projector) nativeSessionID() string {
 
 type normalizedUsage struct {
 	input, output, reasoning, cacheRead, cacheWrite float64
-	available                                       bool
-	fields                                          map[string]bool
 }
 
+// normalizeUsage maps one step's raw agy usage onto the five fields. OpenCode's
+// Gemini protocol subtracts the cached count from the API's promptTokenCount,
+// which is inclusive of it; the agy CLI instead reports input_tokens as the
+// uncached remainder already (on a warm turn cache_read_tokens exceeds it), so
+// this adapter must not subtract. thinking_tokens is a subset of output_tokens.
+// cache_write_tokens never appears, so cache.write is 0. An absent field is 0.
 func normalizeUsage(value map[string]any) normalizedUsage {
-	read := func(key string) (float64, bool) {
-		number, ok := value[key].(float64)
-		return number, ok
+	read := func(key string) float64 {
+		number, _ := value[key].(float64)
+		return number
 	}
-	input, inputOK := read("input_tokens")
-	outputTotal, outputOK := read("output_tokens")
-	reasoning, reasoningOK := read("thinking_tokens")
-	cacheRead, cacheReadOK := read("cache_read_tokens")
-	cacheWrite, cacheWriteOK := read("cache_write_tokens")
-	fields := map[string]bool{
-		"input": inputOK, "output": outputOK && reasoningOK, "reasoning": reasoningOK,
-		"cacheRead": cacheReadOK, "cacheWrite": cacheWriteOK,
-	}
+	reasoning := read("thinking_tokens")
 	return normalizedUsage{
-		input: input, output: max(0, outputTotal-reasoning), reasoning: reasoning,
-		cacheRead: cacheRead, cacheWrite: cacheWrite,
-		available: inputOK && outputOK && reasoningOK && cacheReadOK && cacheWriteOK,
-		fields:    fields,
+		input: read("input_tokens"), output: max(0, read("output_tokens")-reasoning),
+		reasoning: reasoning,
+		cacheRead: read("cache_read_tokens"), cacheWrite: read("cache_write_tokens"),
 	}
 }
 

@@ -16,11 +16,11 @@ type HarnessAdapter interface {
 	// may start its native process or conversation lazily in RunTurn.
 	CreateSession(ctx context.Context, model, workdir string) (string, error)
 
-	// RunTurn runs one turn and blocks until it ends. With a schema it
-	// returns the structured result; without one, the final message encoded
-	// as a JSON string. It passes every event to onEvent as it arrives.
-	// Cancelling ctx interrupts the native turn and returns ctx.Err().
-	RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, onEvent func(AgentEvent) error) (json.RawMessage, error)
+	// RunTurn runs one turn and blocks until it ends. It passes every event
+	// to onEvent as it arrives and returns the turn's output and the
+	// harness's own report of what the turn spent. Cancelling ctx interrupts
+	// the native turn and returns ctx.Err().
+	RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, onEvent func(AgentEvent) error) (TurnResult, error)
 
 	// Steer sends a message into the session's running turn. With no turn
 	// running it does nothing and returns nil.
@@ -32,4 +32,17 @@ type HarnessAdapter interface {
 	// Close releases whatever the adapter holds for the session. Idempotent.
 	// Called by the runtime when the owning scope ends.
 	Close(ctx context.Context, sessionID string) error
+}
+
+// TurnResult is what one turn produced.
+type TurnResult struct {
+	// Output is the structured result when a schema was sent, and the final
+	// message encoded as a JSON string when none was. Generate validates and
+	// decodes it.
+	Output json.RawMessage
+
+	// Usage is the harness's own report for the turn, keyed by model name.
+	// It is nil when the harness states no turn report; the session then
+	// accounts for the turn from its step events alone.
+	Usage map[string]Usage
 }

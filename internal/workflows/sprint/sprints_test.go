@@ -20,12 +20,13 @@ func (a *taskAdapter) CreateSession(context.Context, string, string) (string, er
 	return "session", nil
 }
 
-func (a *taskAdapter) RunTurn(_ context.Context, _ string, prompt string, schema json.RawMessage, _ func(gimble.AgentEvent) error) (json.RawMessage, error) {
+func (a *taskAdapter) RunTurn(_ context.Context, _ string, prompt string, schema json.RawMessage, _ func(gimble.AgentEvent) error) (gimble.TurnResult, error) {
 	a.prompts = append(a.prompts, prompt)
 	if len(schema) != 0 {
-		return json.RawMessage(`{"objections":["The task has no evidence for its definition of done."]}`), nil
+		return gimble.TurnResult{Output: json.RawMessage(`{"objections":["The task has no evidence for its definition of done."]}`)}, nil
 	}
-	return json.Marshal("worker finished")
+	out, err := json.Marshal("worker finished")
+	return gimble.TurnResult{Output: out}, err
 }
 
 func (*taskAdapter) Steer(context.Context, string, string) error  { return nil }

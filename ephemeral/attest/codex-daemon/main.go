@@ -62,7 +62,7 @@ func (a *recordingAdapter) Fork(ctx context.Context, sessionID string) (string, 
 	return a.record(id), nil
 }
 
-func (a *recordingAdapter) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, onEvent func(gimble.AgentEvent) error) (json.RawMessage, error) {
+func (a *recordingAdapter) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, onEvent func(gimble.AgentEvent) error) (gimble.TurnResult, error) {
 	return a.inner.RunTurn(ctx, sessionID, prompt, schema, onEvent)
 }
 

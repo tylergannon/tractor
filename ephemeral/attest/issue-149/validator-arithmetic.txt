@@ -1,0 +1,33 @@
+run: logs/runs/20260912-205306.issue-149
+===== claude.1 =====
+  step.ended tokens: {"cache": {"read": 29157, "write": 8027}, "input": 10, "output": 64, "reasoning": 115} cost: 0
+  step.ended tokens: {"cache": {"read": 37184, "write": 242}, "input": 10, "output": 66, "reasoning": 105} cost: 0
+  sum of step.ended: {"input": 20, "output": 130, "reasoning": 220, "read": 66341, "write": 8269}
+  session.usage.updated published 4 times
+  final usage.updated tokens: {"cache": {"read": 66341, "write": 8269}, "input": 20, "output": 130, "reasoning": 220} cost: 0.0249421
+===== codex.1 =====
+  step.ended tokens: {"cache": {"read": 9984, "write": 0}, "input": 10808, "output": 53, "reasoning": 0} cost: 0
+  step.ended tokens: {"cache": {"read": 20224, "write": 0}, "input": 4402, "output": 59, "reasoning": 0} cost: 0
+  sum of step.ended: {"input": 15210, "output": 112, "reasoning": 0, "read": 30208, "write": 0}
+  session.usage.updated published 2 times
+  final usage.updated tokens: {"cache": {"read": 30208, "write": 0}, "input": 15210, "output": 112, "reasoning": 0} cost: 0
+===== agy.1 =====
+  step.ended tokens: {"cache": {"read": 0, "write": 0}, "input": 14866, "output": 50, "reasoning": 0} cost: 0
+  step.ended tokens: {"cache": {"read": 0, "write": 0}, "input": 15140, "output": 51, "reasoning": 0} cost: 0
+  sum of step.ended: {"input": 30006, "output": 101, "reasoning": 0, "read": 0, "write": 0}
+  session.usage.updated published 2 times
+  final usage.updated tokens: {"cache": {"read": 0, "write": 0}, "input": 30006, "output": 101, "reasoning": 0} cost: 0
+===== turn_ended =====
+  claude.1/claude.1/turn.1 [{"model": "claude-haiku-4-5-20251001", "cost": 0.0198747, "tokens": {"input": 10, "output": 64, "reasoning": 115, "cache": {"read": 29157, "write": 8027}}}] | 'tokens' key present: False
+  codex.1/codex.1/turn.1 [{"model": "gpt-5.6-luna", "cost": 0, "tokens": {"input": 10808, "output": 53, "reasoning": 0, "cache": {"read": 9984, "write": 0}}}] | 'tokens' key present: False
+  agy.1/agy.1/turn.1 [{"model": "gemini-3.8-flash-low", "cost": 0, "tokens": {"input": 14866, "output": 50, "reasoning": 0, "cache": {"read": 0, "write": 0}}}] | 'tokens' key present: False
+  agy.1/agy.1/turn.2 [{"model": "gemini-3.8-flash-low", "cost": 0, "tokens": {"input": 15140, "output": 51, "reasoning": 0, "cache": {"read": 0, "write": 0}}}] | 'tokens' key present: False
+  claude.1/claude.1/turn.2 [{"model": "claude-haiku-4-5-20251001", "cost": 0.0050674000000000005, "tokens": {"input": 10, "output": 66, "reasoning": 105, "cache": {"read": 37184, "write": 242}}}] | 'tokens' key present: False
+  codex.1/codex.1/turn.2 [{"model": "gpt-5.6-luna", "cost": 0, "tokens": {"input": 4402, "output": 59, "reasoning": 0, "cache": {"read": 20224, "write": 0}}}] | 'tokens' key present: False
+  claude turn-report cost sum: 0.0249421
+logs/runs/20260912-205306.issue-149/run.jsonl:0
+logs/runs/20260912-205306.issue-149/sessions/agy.1/agy.1.jsonl:0
+logs/runs/20260912-205306.issue-149/sessions/codex.1/codex.1.jsonl:0
+logs/runs/20260912-205306.issue-149/sessions/claude.1/claude.1.jsonl:0
+logs/runs/20260912-205306.issue-149/observation.json:0
+page 'unavailable|partial' match count: 0

@@ -326,3 +326,32 @@ func TestConcurrentProducersAndSubscribers(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 }
+
+// TestSnapshotCarriesScopeTree is issue 144 item 3: the snapshot holds the
+// workflow state a reload must show, not only the sessions and turns.
+func TestSnapshotCarriesScopeTree(t *testing.T) {
+	store := openStore(t)
+	task := Placement{Scope: "loop.1/task.2"}
+	store.Lifecycle(Lifecycle{Placement: Placement{Scope: "loop.1"}, Scope: &ScopeChange{Name: "loop.1", Status: StatusRunning}})
+	store.Lifecycle(Lifecycle{Placement: Placement{Scope: "loop.1"}, Decision: json.RawMessage(`{"task":{"name":"write a.txt"}}`)})
+	store.Lifecycle(Lifecycle{Placement: task, Scope: &ScopeChange{Name: "task.2", Status: StatusRunning, Task: json.RawMessage(`{"name":"write a.txt"}`)}})
+	store.Lifecycle(Lifecycle{Placement: task, Value: &ValueChange{Key: "worker result", Value: json.RawMessage(`"done"`)}})
+	store.Lifecycle(Lifecycle{Placement: task, Scope: &ScopeChange{Status: StatusEnded}})
+
+	scopes := store.Snapshot().Scopes
+	got := scopes["loop.1/task.2"]
+	// An ended scope with no error is ended, never succeeded.
+	if got.Name != "task.2" || got.Status != StatusEnded || got.Error != "" {
+		t.Fatalf("task scope = %+v", got)
+	}
+	if string(got.Task) != `{"name":"write a.txt"}` || string(got.Values["worker result"]) != `"done"` {
+		t.Fatalf("task scope lost its dispatch or its values: %+v", got)
+	}
+	decisions := scopes["loop.1"].Decisions
+	if len(decisions) != 1 || !strings.Contains(string(decisions[0]), "write a.txt") {
+		t.Fatalf("loop scope decisions = %v", decisions)
+	}
+	if scopes["loop.1"].Status != StatusRunning {
+		t.Fatalf("the running loop scope = %+v", scopes["loop.1"])
+	}
+}

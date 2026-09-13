@@ -1,0 +1,82 @@
+Guide
+About
+Run usage · connecting
+Run
+issue-149
+completed
+connecting
+agy
+*agy.adapter · gemini-3.8-flash-low
+ses_YWd5LjEvYWd5LjE
+idle
+30028 in · 100 out · 141 reasoning · 0 cache read · 0 cache write · $0
+user
+running
+In two sentences, what is the difference between latency and throughput? Answer from your own knowledge and use no tools.
+Assistant
+completed
+**Latency** is the time it takes for a single unit of data or request to travel from its source to its destination. In contrast, **throughput** is the total volume of data or number of requests successfully processed or transmitted over a given period of time.
+14862 in · 52 out · 28 reasoning · 0 cache read · 0 cache write · $0
+agy
+*agy.adapter · gemini-3.8-flash-low
+ses_YWd5LjEvYWd5LjE
+idle
+30028 in · 100 out · 141 reasoning · 0 cache read · 0 cache write · $0
+user
+running
+Now, in two sentences, name one case where improving one of them makes the other worse. Again use no tools.
+Assistant
+completed
+Introducing **batching** or buffering allows a system to process multiple requests together, maximizing throughput by amortizing fixed overhead across many items. However, holding requests until a batch fills directly increases individual waiting time, thereby degrading latency for each item.
+15166 in · 48 out · 113 reasoning · 0 cache read · 0 cache write · $0
+claude
+*claude.adapter · haiku
+ses_Y2xhdWRlLjEvY2xhdWRlLjE
+idle
+20 in · 136 out · 276 reasoning · 66212 cache read · 8130 cache write · $0.0249612
+user
+running
+In two sentences, what is the difference between latency and throughput? Answer from your own knowledge and use no tools.
+Assistant
+completed
+Reasoning · completed
+Latency is the time it takes for a single operation to complete from start to finish, measuring how quickly the system responds to one request. Throughput is the number of operations the system can complete in a given time period, measuring how much work it can handle overall.
+10 in · 62 out · 107 reasoning · 29157 cache read · 7898 cache write · $0
+claude
+*claude.adapter · haiku
+ses_Y2xhdWRlLjEvY2xhdWRlLjE
+idle
+20 in · 136 out · 276 reasoning · 66212 cache read · 8130 cache write · $0.0249612
+user
+running
+Now, in two sentences, name one case where improving one of them makes the other worse. Again use no tools.
+Assistant
+completed
+Reasoning · completed
+Batching multiple requests together reduces the per-request latency cost by amortizing overhead, but it increases individual request latency since each request must wait for the batch to fill before processing. Conversely, processing requests immediately minimizes latency for individual operations but reduces overall throughput by losing the efficiency gains of batching.
+10 in · 74 out · 169 reasoning · 37055 cache read · 232 cache write · $0
+codex
+*codex.adapter · gpt-5.6-luna
+ses_Y29kZXguMS9jb2RleC4x
+idle
+15868 in · 65 out · 59 reasoning · 31232 cache read · 0 cache write · $0
+user
+running
+In two sentences, what is the difference between latency and throughput? Answer from your own knowledge and use no tools.
+Assistant
+completed
+Latency is how long one operation takes from start to finish. Throughput is how many operations a system can complete per unit of time.
+11660 in · 31 out · 0 reasoning · 9984 cache read · 0 cache write · $0
+codex
+*codex.adapter · gpt-5.6-luna
+ses_Y29kZXguMS9jb2RleC4x
+idle
+15868 in · 65 out · 59 reasoning · 31232 cache read · 0 cache write · $0
+user
+running
+Now, in two sentences, name one case where improving one of them makes the other worse. Again use no tools.
+Assistant
+completed
+Reasoning · completed
+Batching requests can improve throughput by processing many at once. However, each request may wait for the batch to fill, increasing its latency.
+4208 in · 34 out · 59 reasoning · 21248 cache read · 0 cache write · $0

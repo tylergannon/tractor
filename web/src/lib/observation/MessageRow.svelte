@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { JSONObject } from '../sessionstate/index.js';
-	import { accounting } from './index.js';
+	import { usageOf, usageText } from './index.js';
 
-	let { message, pending, provenance, revision }: { message: JSONObject; pending?: JSONObject; provenance: unknown; revision: number } = $props();
+	let { message, pending, revision }: { message: JSONObject; pending?: JSONObject; revision: number } = $props();
 	const text = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value, null, 2);
 	const row: JSONObject = $derived.by(() => {
 		revision;
@@ -38,7 +38,7 @@
 				</section>
 			{/if}
 		{/each}
-		<footer>{accounting(row, provenance)}</footer>
+		<footer>{usageText(usageOf(row))}</footer>
 	{:else if row.text !== undefined}
 		<p class="prose">{row.text}</p>
 	{:else if row.type === 'shell'}

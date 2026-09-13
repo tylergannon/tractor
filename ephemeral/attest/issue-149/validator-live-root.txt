@@ -1,0 +1,2 @@
+data: {"type":"result","result":"[{\"cost\":1,\"tokens\":2},0.0249421,{\"input\":3,\"output\":4,\"reasoning\":5,\"cache\":6},45236,343,220,{\"read\":7,\"write\":8},96549,8269]"}
+

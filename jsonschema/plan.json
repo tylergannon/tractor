@@ -1,6 +1,6 @@
 {"type":"object",
-"description":"plan is the planner's answer for one dispatch. A null Next ends dispatch; it does not attest that the enclosing goal has been fulfilled.","properties":{
-"next":{"anyOf":[{"type":"object",
+"description":"plan is the planner's whole answer for one dispatch: the revised backlog and the index of the next task, or null to end dispatch.","properties":{
+"tasks":{"type":"array","items":{"type":"object",
 "description":"Task is one assignment selected by a Loop planner.","properties":{
 "name":{"type":"string","description":"Name is a short label for recognizing the work."},
 "description":{"type":"string","description":"Description states the desired result and any necessary, non-obvious information. It leaves the approach to the worker."},
@@ -10,5 +10,6 @@
 "command":{"type":"string","description":"Command is a known executable check."},
 "query":{"type":"string","description":"Query is a question for a validator agent."}
 },"required":["command","query"],"additionalProperties":false}
-},"required":["name","description","definition_of_done","validation"],"additionalProperties":false},{"type":"null"}]}
-},"required":["next"],"additionalProperties":false}
+},"required":["name","description","definition_of_done","validation"],"additionalProperties":false}},
+"next":{"type":["integer","null"]}
+},"required":["tasks","next"],"additionalProperties":false}

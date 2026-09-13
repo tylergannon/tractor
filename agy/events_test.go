@@ -22,7 +22,13 @@ func TestProjectorTranslatesResponseAndToolSteps(t *testing.T) {
 	}}))
 	mustProject(t, p.envelope(envelope{StepUpdate: &stepUpdate{
 		ConversationID: "conversation-1", StepIndex: 1, StepType: "agent_response", State: "DONE", TextDelta: "lo",
-		Usage: map[string]any{"input_tokens": float64(10), "output_tokens": float64(4), "thinking_tokens": float64(1), "cache_read_tokens": float64(2)},
+		// A warm-cache step from the live probe (turn2.jsonl): cache_read
+		// exceeds input because agy already reports input net of the cache.
+		Usage: map[string]any{
+			"input_tokens": float64(18070), "output_tokens": float64(74),
+			"thinking_tokens": float64(63), "cache_read_tokens": float64(28601),
+			"total_tokens": float64(18144),
+		},
 	}}))
 	mustProject(t, p.envelope(envelope{StepUpdate: &stepUpdate{
 		ConversationID: "conversation-1", StepIndex: 2, StepType: "tool", State: "ACTIVE",
@@ -47,19 +53,14 @@ func TestProjectorTranslatesResponseAndToolSteps(t *testing.T) {
 		t.Fatal(err)
 	}
 	tokens := ended["tokens"].(map[string]any)
-	if tokens["output"] != float64(3) || tokens["reasoning"] != float64(1) {
-		t.Fatalf("normalized tokens = %#v", tokens)
+	cache := tokens["cache"].(map[string]any)
+	if tokens["input"] != float64(18070) || tokens["output"] != float64(11) ||
+		tokens["reasoning"] != float64(63) || cache["read"] != float64(28601) ||
+		cache["write"] != float64(0) || ended["cost"] != float64(0) {
+		t.Fatalf("normalized usage = %#v", ended)
 	}
 	if !json.Valid(events[6].NativeRef) {
 		t.Fatal("invalid native ref")
-	}
-	var ref map[string]any
-	if err := json.Unmarshal(events[6].NativeRef, &ref); err != nil {
-		t.Fatal(err)
-	}
-	accounting := ref["accounting"].(map[string]any)
-	if accounting["tokensAvailable"] != false || accounting["costAvailable"] != false {
-		t.Fatalf("accounting = %#v", accounting)
 	}
 }
 

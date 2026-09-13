@@ -28,9 +28,9 @@ func (a *deterministicAdapter) CreateSession(context.Context, string, string) (s
 	return "proof-native-" + strconv.FormatInt(a.next.Add(1), 10), nil
 }
 
-func (a *deterministicAdapter) RunTurn(ctx context.Context, sessionID, _ string, _ json.RawMessage, emit func(gimble.AgentEvent) error) (json.RawMessage, error) {
+func (a *deterministicAdapter) RunTurn(ctx context.Context, sessionID, _ string, _ json.RawMessage, emit func(gimble.AgentEvent) error) (gimble.TurnResult, error) {
 	if err := waitFile(ctx, filepath.Join(a.project, "start")); err != nil {
-		return nil, err
+		return gimble.TurnResult{}, err
 	}
 	// Both concurrent native sessions deliberately reuse provider-local IDs;
 	// Gimble must still produce distinct canonical message identities.
@@ -52,11 +52,11 @@ func (a *deterministicAdapter) RunTurn(ctx context.Context, sessionID, _ string,
 	}
 	for _, event := range events {
 		if err := emit(native(event.kind, event.data, messageID)); err != nil {
-			return nil, err
+			return gimble.TurnResult{}, err
 		}
 	}
 	if err := waitFile(ctx, filepath.Join(a.project, "finish")); err != nil {
-		return nil, err
+		return gimble.TurnResult{}, err
 	}
 	final := []struct {
 		kind string
@@ -69,10 +69,11 @@ func (a *deterministicAdapter) RunTurn(ctx context.Context, sessionID, _ string,
 	}
 	for _, event := range final {
 		if err := emit(native(event.kind, event.data, messageID)); err != nil {
-			return nil, err
+			return gimble.TurnResult{}, err
 		}
 	}
-	return json.Marshal("FINAL_RESULT_" + sessionID)
+	out, err := json.Marshal("FINAL_RESULT_" + sessionID)
+	return gimble.TurnResult{Output: out}, err
 }
 
 func native(kind string, data map[string]any, messageID string) gimble.AgentEvent {

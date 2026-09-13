@@ -1,0 +1,18 @@
+Issue 144 live attestation, 2026-09-12. Models: planner and workers gpt-5.6-luna (Codex).
+
+Run 1 (20260912-140442.issue144), observed mid-Loop during task 2 via headless Chromium
+(Playwright) after page.reload(), i.e. from the SSR snapshot alone:
+  . running; values: constraint
+  files.1 running; decisions: create-a.txt, create-b.txt
+  files.1/task.1 ended; task create-a.txt; values: task, worker result, files [".gimble","a.txt"]
+  files.1/task.2 running; task create-b.txt
+GET /api/runs/<id> mid-run carried the same scopes.
+
+Run 2 (20260912-140719.issue144), page open live, then SIGINT to the run only:
+  live status pill (TS reducer over SSE): running -> cancelled
+  page.reload() after the run ended (Go checkpoint via SSR): cancelled, error "context canceled"
+  GET /api/runs/<id>: cancelled
+  task and loop scopes ended with empty error; run scope ended with "context canceled" (probe P6 shape).
+
+Turn-outcome-after-validation (item 1) is covered by TestTurnRecordsValidationFailure on the
+fake adapter; a real model cannot be made to fail schema validation on demand.

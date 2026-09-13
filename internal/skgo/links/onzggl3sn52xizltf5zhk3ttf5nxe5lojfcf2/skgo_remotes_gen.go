@@ -2,10 +2,21 @@
 
 package runid
 
+import (
+	observation "github.com/tylergannon/gimble/internal/observation"
+)
+
 // The functions this package declares, published under names the generated
 // bindings package can spell. Each is the function itself and not a wrapper:
 // skgo.Refresh finds a query by the code pointer of the function it names.
 var (
+	// Skgo_scopeUsage is scopeUsage, published as src/routes/runs/[runID]/usage.remote.ts#scopeUsage.
+	Skgo_scopeUsage = scopeUsage
 	// Skgo_load is load, published as the server load of src/routes/runs/[runID]/+page.server.ts.
 	Skgo_load = load
+)
+
+type (
+	// SkgoOut_scopeUsage is the type scopeUsage yields.
+	SkgoOut_scopeUsage = observation.Usage
 )

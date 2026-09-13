@@ -1,0 +1,9 @@
+HTTP/1.1 200 OK
+Cache-Control: private, no-store
+Content-Type: text/event-stream
+X-Sveltekit-Version: 1789266309303
+Date: Sun, 13 Sep 2026 02:41:56 GMT
+Transfer-Encoding: chunked
+
+data: {"type":"result","result":"[{\"cost\":1,\"tokens\":2},0,{\"input\":3,\"output\":4,\"reasoning\":5,\"cache\":6},15192,80,47,{\"read\":7,\"write\":1},30208]"}
+

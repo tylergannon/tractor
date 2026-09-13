@@ -105,10 +105,12 @@ func (a *adapter) CreateSession(ctx context.Context, model, workdir string) (str
 }
 
 // RunTurn runs one resumed agy print process and translates its NDJSON stream.
-func (a *adapter) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, onEvent func(gimble.AgentEvent) error) (json.RawMessage, error) {
+// Antigravity states no cost and no per-model turn report, so TurnResult carries
+// no usage: the session accounts for the turn from its step events alone.
+func (a *adapter) RunTurn(ctx context.Context, sessionID, prompt string, schema json.RawMessage, onEvent func(gimble.AgentEvent) error) (gimble.TurnResult, error) {
 	s, err := a.session(sessionID)
 	if err != nil {
-		return nil, err
+		return gimble.TurnResult{}, err
 	}
 	s.ops.Lock()
 	defer s.ops.Unlock()
@@ -123,18 +125,20 @@ func (a *adapter) RunTurn(ctx context.Context, sessionID, prompt string, schema 
 	}
 	result, err := a.run(ctx, s, request)
 	if ctx.Err() != nil {
-		return nil, ctx.Err()
+		return gimble.TurnResult{}, ctx.Err()
 	}
 	if err != nil {
-		return nil, err
+		return gimble.TurnResult{}, err
 	}
 	if len(schema) == 0 {
-		return json.Marshal(result.response)
+		out, err := json.Marshal(result.response)
+		return gimble.TurnResult{Output: out}, err
 	}
 	if result.structured == nil {
-		return nil, errors.New("agy: the turn ended without structured_output")
+		return gimble.TurnResult{}, errors.New("agy: the turn ended without structured_output")
 	}
-	return json.Marshal(result.structured)
+	out, err := json.Marshal(result.structured)
+	return gimble.TurnResult{Output: out}, err
 }
 
 // Steer interrupts the active print process. RunTurn resumes the same native

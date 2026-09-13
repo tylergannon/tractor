@@ -1,0 +1,81 @@
+Guide
+About
+Run usage · connecting
+Run
+issue-149
+completed
+connecting
+agy
+*agy.adapter · gemini-3.8-flash-low
+ses_YWd5LjEvYWd5LjE
+idle
+30006 in · 101 out · 0 reasoning · 0 cache read · 0 cache write · $0
+user
+running
+In two sentences, what is the difference between latency and throughput? Answer from your own knowledge and use no tools.
+Assistant
+completed
+**Latency** measures the time delay required for a single request or data packet to travel from source to destination. In contrast, **throughput** measures the total volume of data or number of operations successfully processed by a system over a given period of time.
+14866 in · 50 out · 0 reasoning · 0 cache read · 0 cache write · $0
+agy
+*agy.adapter · gemini-3.8-flash-low
+ses_YWd5LjEvYWd5LjE
+idle
+30006 in · 101 out · 0 reasoning · 0 cache read · 0 cache write · $0
+user
+running
+Now, in two sentences, name one case where improving one of them makes the other worse. Again use no tools.
+Assistant
+completed
+A classic example is **batching** network packets or database writes, where aggregating multiple items increases overall throughput by amortizing overhead. However, this degrades individual latency because the earliest items in the batch must wait for the collection buffer to fill before being processed.
+15140 in · 51 out · 0 reasoning · 0 cache read · 0 cache write · $0
+claude
+*claude.adapter · haiku
+ses_Y2xhdWRlLjEvY2xhdWRlLjE
+idle
+20 in · 130 out · 220 reasoning · 66341 cache read · 8269 cache write · $0.0249421
+user
+running
+In two sentences, what is the difference between latency and throughput? Answer from your own knowledge and use no tools.
+Assistant
+completed
+Reasoning · completed
+**Latency** is how long it takes for a single request to complete—the time from when you send something until you get a response back. **Throughput** is how many requests you can process in a given time period—the rate at which you can handle work.
+10 in · 64 out · 115 reasoning · 29157 cache read · 8027 cache write · $0
+claude
+*claude.adapter · haiku
+ses_Y2xhdWRlLjEvY2xhdWRlLjE
+idle
+20 in · 130 out · 220 reasoning · 66341 cache read · 8269 cache write · $0.0249421
+user
+running
+Now, in two sentences, name one case where improving one of them makes the other worse. Again use no tools.
+Assistant
+completed
+Reasoning · completed
+If you batch requests together to maximize throughput, you increase latency because individual requests must wait in the queue for the batch to fill before processing. Conversely, if you process requests immediately to minimize latency, you sacrifice throughput because you're not amortizing overhead across multiple requests.
+10 in · 66 out · 105 reasoning · 37184 cache read · 242 cache write · $0
+codex
+*codex.adapter · gpt-5.6-luna
+ses_Y29kZXguMS9jb2RleC4x
+idle
+15210 in · 112 out · 0 reasoning · 30208 cache read · 0 cache write · $0
+user
+running
+In two sentences, what is the difference between latency and throughput? Answer from your own knowledge and use no tools.
+Assistant
+completed
+Latency is how long it takes to complete one operation, while throughput is how many operations can be completed per unit of time. A system can have low latency but low throughput, or high latency but high throughput, depending on its concurrency and batching.
+10808 in · 53 out · 0 reasoning · 9984 cache read · 0 cache write · $0
+codex
+*codex.adapter · gpt-5.6-luna
+ses_Y29kZXguMS9jb2RleC4x
+idle
+15210 in · 112 out · 0 reasoning · 30208 cache read · 0 cache write · $0
+user
+running
+Now, in two sentences, name one case where improving one of them makes the other worse. Again use no tools.
+Assistant
+completed
+Reducing latency by processing each request immediately can hurt throughput because it prevents batching, which would handle more requests per unit of time. For example, sending database queries one at a time may speed up an individual query’s response but reduce the total number of queries completed per second.
+4402 in · 59 out · 0 reasoning · 20224 cache read · 0 cache write · $0

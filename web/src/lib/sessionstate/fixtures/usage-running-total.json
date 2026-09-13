@@ -1,0 +1,270 @@
+{
+ "seed": {
+  "info": [
+   {
+    "id": "ses_usage",
+    "projectID": "project",
+    "location": {
+     "directory": "/oracle"
+    },
+    "time": {
+     "created": 1,
+     "updated": 1
+    },
+    "cost": 0,
+    "tokens": {
+     "input": 0,
+     "output": 0,
+     "reasoning": 0,
+     "cache": {
+      "read": 0,
+      "write": 0
+     }
+    }
+   }
+  ],
+  "messages": {
+   "ses_usage": []
+  }
+ },
+ "events": [
+  {
+   "id": "evt_1",
+   "created": 1,
+   "type": "session.execution.started",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 0,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage"
+   }
+  },
+  {
+   "id": "evt_2",
+   "created": 2,
+   "type": "session.step.started",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 1,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage",
+    "assistantMessageID": "msg_step_1",
+    "agent": "build",
+    "model": {
+     "id": "model",
+     "providerID": "provider",
+     "variant": "default"
+    }
+   }
+  },
+  {
+   "id": "evt_3",
+   "created": 3,
+   "type": "session.step.ended",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 2,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage",
+    "assistantMessageID": "msg_step_1",
+    "finish": "tool-calls",
+    "rawFinish": "tool_calls",
+    "cost": 0,
+    "tokens": {
+     "input": 100,
+     "output": 20,
+     "reasoning": 5,
+     "cache": {
+      "read": 10,
+      "write": 30
+     }
+    }
+   }
+  },
+  {
+   "id": "evt_4",
+   "created": 4,
+   "type": "session.usage.updated",
+   "data": {
+    "sessionID": "ses_usage",
+    "cost": 0,
+    "tokens": {
+     "input": 100,
+     "output": 20,
+     "reasoning": 5,
+     "cache": {
+      "read": 10,
+      "write": 30
+     }
+    }
+   }
+  },
+  {
+   "id": "evt_5",
+   "created": 5,
+   "type": "session.step.started",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 3,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage",
+    "assistantMessageID": "msg_step_2",
+    "agent": "build",
+    "model": {
+     "id": "model",
+     "providerID": "provider",
+     "variant": "default"
+    }
+   }
+  },
+  {
+   "id": "evt_6",
+   "created": 6,
+   "type": "session.step.ended",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 4,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage",
+    "assistantMessageID": "msg_step_2",
+    "finish": "stop",
+    "rawFinish": "end_turn",
+    "cost": 0.0125,
+    "tokens": {
+     "input": 40,
+     "output": 10,
+     "reasoning": 0,
+     "cache": {
+      "read": 200,
+      "write": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "evt_7",
+   "created": 7,
+   "type": "session.usage.updated",
+   "data": {
+    "sessionID": "ses_usage",
+    "cost": 0.0125,
+    "tokens": {
+     "input": 140,
+     "output": 30,
+     "reasoning": 5,
+     "cache": {
+      "read": 210,
+      "write": 30
+     }
+    }
+   }
+  },
+  {
+   "id": "evt_8",
+   "created": 8,
+   "type": "session.step.started",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 5,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage",
+    "assistantMessageID": "msg_step_3",
+    "agent": "build",
+    "model": {
+     "id": "model",
+     "providerID": "provider",
+     "variant": "default"
+    }
+   }
+  },
+  {
+   "id": "evt_9",
+   "created": 9,
+   "type": "session.step.failed",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 6,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage",
+    "assistantMessageID": "msg_step_3",
+    "error": {
+     "type": "provider.overloaded",
+     "message": "overloaded"
+    },
+    "cost": 0.004,
+    "tokens": {
+     "input": 7,
+     "output": 3,
+     "reasoning": 0,
+     "cache": {
+      "read": 0,
+      "write": 0
+     }
+    }
+   }
+  },
+  {
+   "id": "evt_10",
+   "created": 10,
+   "type": "session.usage.updated",
+   "data": {
+    "sessionID": "ses_usage",
+    "cost": 0.0165,
+    "tokens": {
+     "input": 147,
+     "output": 33,
+     "reasoning": 5,
+     "cache": {
+      "read": 210,
+      "write": 30
+     }
+    }
+   }
+  },
+  {
+   "id": "evt_11",
+   "created": 11,
+   "type": "session.execution.succeeded",
+   "durable": {
+    "aggregateID": "ses_usage",
+    "seq": 7,
+    "version": 1
+   },
+   "data": {
+    "sessionID": "ses_usage"
+   }
+  },
+  {
+   "id": "evt_12",
+   "created": 12,
+   "type": "session.usage.updated",
+   "data": {
+    "sessionID": "ses_usage",
+    "cost": 0.0301,
+    "tokens": {
+     "input": 147,
+     "output": 33,
+     "reasoning": 5,
+     "cache": {
+      "read": 210,
+      "write": 30
+     }
+    }
+   }
+  }
+ ]
+}

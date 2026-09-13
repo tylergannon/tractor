@@ -1,0 +1,42 @@
+Run 20260912-204128.issue-149, commit 96cecfc.
+
+--- every session.usage.updated line, per session (jq-free excerpt of the
+--- event payload; full lines are in logs/runs/.../sessions/<scope>/<scope>.jsonl)
+
+claude.1 (4 lines: one after each step.ended, one after each Claude `result`)
+ turn.1 tokens={"input":10,"output":72,"reasoning":116,"cache":{"read":29157,"write":7849}} cost=0
+ turn.1 tokens={"input":10,"output":72,"reasoning":116,"cache":{"read":29157,"write":7849}} cost=0.0195637
+ turn.2 tokens={"input":20,"output":138,"reasoning":278,"cache":{"read":66163,"write":8100}} cost=0.0195637
+ turn.2 tokens={"input":20,"output":138,"reasoning":278,"cache":{"read":66163,"write":8100}} cost=0.0249163
+
+codex.1 (2 lines)
+ turn.1 tokens={"input":10808,"output":35,"reasoning":0,"cache":{"read":9984,"write":0}} cost=0
+ turn.2 tokens={"input":15192,"output":80,"reasoning":47,"cache":{"read":30208,"write":0}} cost=0
+
+agy.1 (2 lines)
+ turn.1 tokens={"input":14863,"output":51,"reasoning":185,"cache":{"read":0,"write":0}} cost=0
+ turn.2 tokens={"input":30186,"output":105,"reasoning":399,"cache":{"read":0,"write":0}} cost=0
+
+--- session.step.ended tokens (the per-step numbers the totals sum)
+
+claude.1 turn.1 {"input":10,"output":72,"reasoning":116,"cache":{"read":29157,"write":7849}} cost=0
+claude.1 turn.2 {"input":10,"output":66,"reasoning":162,"cache":{"read":37006,"write":251}} cost=0
+codex.1  turn.1 {"input":10808,"output":35,"reasoning":0,"cache":{"read":9984,"write":0}} cost=0
+codex.1  turn.2 {"input":4384,"output":45,"reasoning":47,"cache":{"read":20224,"write":0}} cost=0
+agy.1    turn.1 {"input":14863,"output":51,"reasoning":185,"cache":{"read":0,"write":0}} cost=0
+agy.1    turn.2 {"input":15323,"output":54,"reasoning":214,"cache":{"read":0,"write":0}} cost=0
+
+--- arithmetic
+
+claude.1 sum(steps) = {"input":20,"output":138,"reasoning":278,"cache":{"read":66163,"write":8100}} == final usage.updated  OK
+codex.1  sum(steps) = {"input":15192,"output":80,"reasoning":47,"cache":{"read":30208,"write":0}} == final usage.updated  OK
+agy.1    sum(steps) = {"input":30186,"output":105,"reasoning":399,"cache":{"read":0,"write":0}} == final usage.updated  OK
+claude.1 cost: turn.1 report 0.0195637 + turn.2 report 0.0053526 = 0.0249163 == final usage.updated cost  OK
+
+--- grep -c accounting
+
+logs/runs/20260912-204128.issue-149/observation.json:0
+logs/runs/20260912-204128.issue-149/run.jsonl:0
+logs/runs/20260912-204128.issue-149/sessions/agy.1/agy.1.jsonl:0
+logs/runs/20260912-204128.issue-149/sessions/claude.1/claude.1.jsonl:0
+logs/runs/20260912-204128.issue-149/sessions/codex.1/codex.1.jsonl:0

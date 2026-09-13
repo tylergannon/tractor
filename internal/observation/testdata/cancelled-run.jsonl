@@ -1,0 +1,9 @@
+{"seq":1,"time":"2026-09-12T19:58:00.457994Z","scope":"","event":{"kind":"run_started","name":"cancelled"}}
+{"seq":2,"time":"2026-09-12T19:58:00.458053Z","scope":"","event":{"kind":"scope_began","name":"."}}
+{"seq":3,"time":"2026-09-12T19:58:00.458086Z","scope":"lap.1","event":{"kind":"scope_began","name":"lap.1"}}
+{"seq":4,"time":"2026-09-12T19:58:00.458128Z","scope":"lap.1","event":{"key":"language","kind":"value_set","value":"\"go\""}}
+{"seq":5,"time":"2026-09-12T19:58:00.458154Z","scope":"lap.1","event":{"error":"context canceled","kind":"scope_ended"}}
+{"seq":6,"time":"2026-09-12T19:58:00.458172Z","scope":"","event":{"error":"context canceled","kind":"scope_ended"}}
+{"seq":7,"time":"2026-09-12T19:58:00.458185Z","scope":"","event":{"error":"context canceled","kind":"run_cancelled","name":"cancelled","source":""}}
+{"seq":8,"time":"2026-09-12T19:58:00.458226Z","scope":"","event":{"error":"context canceled","kind":"run_ended","name":"cancelled"}}
+{"seq":9,"time":"2026-09-12T19:58:00.458595Z","scope":"","event":{"kind":"complete","recording_error":""}}

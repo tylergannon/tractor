@@ -213,6 +213,18 @@ func (r *run) observeLifecycle(scope, session, turn string, event LifecycleEvent
 		entry.Session = &observation.SessionInfo{
 			Name: e.Name, Adapter: e.Adapter, Model: e.Model, Scope: scope, Parent: e.Parent,
 		}
+	case ScopeBegan:
+		entry.Scope = &observation.ScopeChange{Name: e.Name, Status: observation.StatusRunning}
+		if e.Task.Present {
+			entry.Scope.Task = mustJSON(e.Task.Value)
+		}
+	case ScopeEnded:
+		// An ended scope with no error is ended, not succeeded.
+		entry.Scope = &observation.ScopeChange{Status: observation.StatusEnded, Error: e.Error}
+	case ValueSet:
+		entry.Value = &observation.ValueChange{Key: e.Key, Value: json.RawMessage(e.Value)}
+	case PlannerDecision:
+		entry.Decision = mustJSON(e)
 	}
 	r.store.Lifecycle(entry)
 }
