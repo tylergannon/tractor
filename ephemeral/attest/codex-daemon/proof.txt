@@ -269,10 +269,20 @@ mistaken for adapter leaks:
     GHOST 01a09a4e-78dc-7aa3-b51a-df8e69452666
 
 Decision: the adapter does not unarchive. `callThread` (codex/codex.go)
-reads the thread first (`thread/read`; an archived thread's `path` is under
-`archived_sessions`) and a fork or resume of an archived thread is
-`errThreadArchived` with no daemon call. Reusing a closed session's thread
-is a manual step in Codex until the daemon's unarchive stops leaking.
+reads the thread first (`thread/read`, read-only; an archived thread's
+`path` is under `archived_sessions`) and a fork or resume of an archived
+thread is `errThreadArchived`, with no fork, resume, or unarchive call
+after that read. The error says why rather than telling the caller to
+unarchive, since unarchiving by any route is what leaks. A closed
+session's thread cannot be reused until the daemon's unarchive stops
+leaking; nothing in Gimble's API reaches a closed session today, so this
+only constrains a future feature.
+
+On daemon start: the adapter starts the daemon when `daemon version`
+reports none running, for turns and session creation. That is the
+intended design (attach to the one daemon if it exists, otherwise start
+it, never stop it). Only Close declines to start one, because a stopped
+daemon holds nothing to release.
 `TestForkOfAnArchivedParentFailsWithoutAGhost` archives a parent out from
 under the adapter, forks it, and asserts the error, that Close still ran
 for the parent, and that `thread/loaded/list` gained nothing.

@@ -298,9 +298,10 @@ func TestCloseArchivesThroughARedialedConnection(t *testing.T) {
 // The adapter must not unarchive for the caller: on this daemon version
 // every unarchive, over the API or the CLI, leaves a ghost thread loaded
 // that nothing can archive or delete. So a fork of an archived parent is a
-// clear error, made without any daemon call, and the run leaves no new
-// thread loaded. The parent here is archived out from under the adapter, as
-// Codex Desktop or an earlier Close would.
+// clear error after a read-only thread/read, with no fork, resume, or
+// unarchive call, and the run leaves no new thread loaded. The parent here
+// is archived out from under the adapter, as Codex Desktop or an earlier
+// Close would.
 //
 //	GIMBLE_LIVE=1 go test ./codex -run TestForkOfAnArchivedParentFailsWithoutAGhost -v
 func TestForkOfAnArchivedParentFailsWithoutAGhost(t *testing.T) {
@@ -372,7 +373,7 @@ func TestForkOfAnArchivedParentFailsWithoutAGhost(t *testing.T) {
 			t.Errorf("the run left a new thread %s loaded in the daemon", id)
 		}
 	}
-	t.Logf("parent %s stayed archived, the fork was refused without a daemon call, and no new thread was left loaded", parent)
+	t.Logf("parent %s stayed archived, the fork was refused after thread/read with no fork or unarchive call, and no new thread was left loaded", parent)
 }
 
 // loadedSet is the daemon's thread/loaded/list as a set.

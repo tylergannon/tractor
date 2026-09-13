@@ -131,7 +131,7 @@ func (a *adapter) resumeThreads(ctx context.Context, conn *connection) error {
 
 // errThreadArchived is the adapter's answer to a fork or resume of a thread
 // that Close (or Codex Desktop) has archived.
-var errThreadArchived = errors.New("codex: the thread is archived; unarchive it in Codex before using it again")
+var errThreadArchived = errors.New("codex: the thread is archived and cannot be used again through this adapter: on codex-cli 0.153.4 every unarchive, over the API or the CLI, leaves a ghost thread loaded in the shared daemon until it restarts")
 
 // callThread makes a request that operates on params["threadId"]. The
 // daemon refuses thread/resume and thread/fork on an archived thread, and
@@ -140,8 +140,9 @@ var errThreadArchived = errors.New("codex: the thread is archived; unarchive it 
 // (and `codex unarchive`) leaves a ghost thread loaded in the daemon, with
 // no rollout and status "active", that nothing can archive or delete until
 // the daemon restarts (observed 2026-09-13, recorded in
-// ephemeral/attest/codex-daemon/proof.txt). So the state is read first and
-// an archived thread is a clear error with no daemon call.
+// ephemeral/attest/codex-daemon/proof.txt). So the state is read first
+// (thread/read, which is read-only) and an archived thread is a clear error
+// with no fork, resume, or unarchive call after that read.
 func callThread(ctx context.Context, conn *connection, method string, params map[string]any) (json.RawMessage, error) {
 	callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
