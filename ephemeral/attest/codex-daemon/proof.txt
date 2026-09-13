@@ -230,29 +230,52 @@ Reading the evidence:
   connection and an already-cancelled cleanup context: local maps are
   empty afterwards and Close returns an error rather than a false success.
 
-### Using an archived thread again
+### Using an archived thread again: not through the adapter
 
-Probed 2026-09-13 against the daemon: `thread/read` works on an archived
-thread, but `thread/resume` and `thread/fork` answer
-`session <id> is archived. Run codex unarchive <id> to unarchive it first`
-until `thread/unarchive`, after which both work. Since Close archives every
-thread whose scope ended, the adapter's `callThread` (codex/codex.go) wraps
-thread/resume and thread/fork: on that answer it unarchives the thread and
-retries once. `TestForkUnarchivesAnArchivedParent` runs a turn, archives the
-parent out from under the adapter, forks it through `Session.Fork`, runs a
-turn on the fork, and lets the scope end; both threads are archived again
-and gone from `thread/loaded/list`:
+Probed 2026-09-13 against the daemon (codex-cli 0.153.4): `thread/read`
+works on an archived thread, but `thread/resume` and `thread/fork` answer
+`session <id> is archived. Run codex unarchive <id> to unarchive it first`.
+After `thread/unarchive` both work. The first version of this change had the
+adapter unarchive and retry, and its live test passed while leaving one
+extra thread loaded per run. Stepping through the sequence on a raw
+connection, tracking `thread/loaded/list` after each call:
 
-    === RUN   TestForkUnarchivesAnArchivedParent
-        daemon_live_test.go:371: parent 01a09a48-718c-7bf1-9158-549442c8e19a was archived, unarchived by Fork, forked, used, and both archived again by Close
-    --- PASS: TestForkUnarchivesAnArchivedParent (8.41s)
+    new loaded after unarchive: [01a09a4d-d6f6-78e0-a66e-27366843943f]
+    fork returned: 01a09a4d-d9ae-76a1-af96-e222bd7864bb
+    new loaded after fork (beyond unarchive): [01a09a4d-d9ae-76a1-af96-e222bd7864bb]
+      01a09a4d-d6f6-... path=<nil> forkedFromId=<nil> status=map[type:active]
+      archive 01a09a4d-d6f6-... err: no rollout found for thread id ...
+    ghosts left from this probe: [01a09a4d-d6f6-78e0-a66e-27366843943f]
 
-A daemon quirk seen only from a hand probe, not through the adapter: a
-fork made on a raw client connection that then disconnected at once was
-left loaded with no rollout on disk, and the daemon refuses to archive
-(`no rollout found`), delete (`thread is not persisted`), or resume it. It
-stays loaded until the daemon restarts. The adapter's own unused forks
-archive normally (`TestCloseArchivesThreadsWithoutTouchingTheDaemon`).
+`thread/unarchive` itself creates a ghost: a new in-memory thread with no
+rollout, not the unarchived thread, which the daemon then refuses to
+archive (`no rollout found`), delete (`thread is not persisted and cannot
+be deleted`), or resume. `codex unarchive <id>` on the CLI does the same:
+
+    new loaded after CLI unarchive: [01a09a4e-78dc-7aa3-b51a-df8e69452666]
+    ghosts left from this probe: [01a09a4e-78dc-7aa3-b51a-df8e69452666]
+
+The fork after either unarchive is clean and archivable; only the
+unarchive leaks. Ghosts stay loaded until the daemon restarts. Six were
+created on this machine while finding this (hand probes and three runs of
+the unarchive-and-retry test) and are recorded here so they are not
+mistaken for adapter leaks:
+
+    GHOST 01a09a46-d4e5-7c40-8c02-29f4930695f3
+    GHOST 01a09a48-854b-7862-8e43-a3f8b30748cf
+    GHOST 01a09a49-1fc7-7df0-9492-ce7b41f16622
+    GHOST 01a09a4c-9684-7722-9940-36bb9df78941
+    GHOST 01a09a4d-d6f6-78e0-a66e-27366843943f
+    GHOST 01a09a4e-78dc-7aa3-b51a-df8e69452666
+
+Decision: the adapter does not unarchive. `callThread` (codex/codex.go)
+reads the thread first (`thread/read`; an archived thread's `path` is under
+`archived_sessions`) and a fork or resume of an archived thread is
+`errThreadArchived` with no daemon call. Reusing a closed session's thread
+is a manual step in Codex until the daemon's unarchive stops leaking.
+`TestForkOfAnArchivedParentFailsWithoutAGhost` archives a parent out from
+under the adapter, forks it, and asserts the error, that Close still ran
+for the parent, and that `thread/loaded/list` gained nothing.
 
 ### What was left out and why
 

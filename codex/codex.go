@@ -129,23 +129,53 @@ func (a *adapter) resumeThreads(ctx context.Context, conn *connection) error {
 	return nil
 }
 
+// errThreadArchived is the adapter's answer to a fork or resume of a thread
+// that Close (or Codex Desktop) has archived.
+var errThreadArchived = errors.New("codex: the thread is archived; unarchive it in Codex before using it again")
+
 // callThread makes a request that operates on params["threadId"]. The
 // daemon refuses thread/resume and thread/fork on an archived thread, and
-// Close archives every thread whose scope has ended, so a thread being used
-// again (a fork of it, or a resume on redial after someone archived it from
-// Codex Desktop) is unarchived first and the request retried once.
+// Close archives every thread whose scope has ended. The adapter does not
+// unarchive on the caller's behalf: on codex-cli 0.153.4, thread/unarchive
+// (and `codex unarchive`) leaves a ghost thread loaded in the daemon, with
+// no rollout and status "active", that nothing can archive or delete until
+// the daemon restarts (observed 2026-09-13, recorded in
+// ephemeral/attest/codex-daemon/proof.txt). So the state is read first and
+// an archived thread is a clear error with no daemon call.
 func callThread(ctx context.Context, conn *connection, method string, params map[string]any) (json.RawMessage, error) {
 	callCtx, cancel := context.WithTimeout(ctx, requestTimeout)
 	defer cancel()
-	result, err := conn.call(callCtx, method, params)
-	if err == nil || !strings.Contains(err.Error(), "is archived") {
-		return result, err
-	}
 	threadID, _ := params["threadId"].(string)
-	if _, err := conn.call(callCtx, "thread/unarchive", map[string]any{"threadId": threadID}); err != nil {
-		return nil, fmt.Errorf("codex: unarchive thread %s: %w", threadID, err)
+	if threadID == "" { // thread/start makes a new thread; nothing to check
+		return conn.call(callCtx, method, params)
+	}
+	archived, err := threadArchived(callCtx, conn, threadID)
+	if err != nil {
+		return nil, err
+	}
+	if archived {
+		return nil, fmt.Errorf("%s %s: %w", method, threadID, errThreadArchived)
 	}
 	return conn.call(callCtx, method, params)
+}
+
+// threadArchived reads the thread and reports whether its rollout lives in
+// the daemon's archived_sessions directory, which is how the daemon marks
+// an archived thread (thread/read has no archived flag).
+func threadArchived(ctx context.Context, conn *connection, threadID string) (bool, error) {
+	result, err := conn.call(ctx, "thread/read", map[string]any{"threadId": threadID})
+	if err != nil {
+		return false, fmt.Errorf("codex: read thread %s: %w", threadID, err)
+	}
+	var response struct {
+		Thread struct {
+			Path string `json:"path"`
+		} `json:"thread"`
+	}
+	if err := json.Unmarshal(result, &response); err != nil {
+		return false, fmt.Errorf("codex: decode thread %s: %w", threadID, err)
+	}
+	return strings.Contains(response.Thread.Path, "/archived_sessions/"), nil
 }
 
 // CreateSession starts a Codex thread.
