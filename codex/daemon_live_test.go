@@ -292,6 +292,85 @@ func TestCloseArchivesThroughARedialedConnection(t *testing.T) {
 	t.Logf("daemon pid before=%s after=%s (unchanged)", beforePID, afterPID)
 }
 
+// TestForkUnarchivesAnArchivedParent: Close archives threads, and the daemon
+// refuses thread/fork and thread/resume on an archived thread until it is
+// unarchived. A thread used again through the adapter must therefore be
+// unarchived on the way. Here the parent is archived out from under the
+// adapter (as Codex Desktop, or an earlier Close, would) and then forked.
+//
+//	GIMBLE_LIVE=1 go test ./codex -run TestForkUnarchivesAnArchivedParent -v
+func TestForkUnarchivesAnArchivedParent(t *testing.T) {
+	if os.Getenv("GIMBLE_LIVE") != "1" {
+		t.Skip("set GIMBLE_LIVE=1 to run against the live codex app-server daemon")
+	}
+	ad := New().(*adapter)
+	var mu sync.Mutex
+	var archived []string
+	ad.onArchive = func(threadID string) {
+		mu.Lock()
+		defer mu.Unlock()
+		archived = append(archived, threadID)
+	}
+	dir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	ctx = gimble.Project(ctx, dir)
+
+	var parent string
+	err := gimble.Run(ctx, "daemon-fork-archived-live", func(ctx context.Context) error {
+		session := gimble.NewSession(ctx, "live", ad, "gpt-5.6-luna", dir)
+		if _, err := session.Generate[gimble.Text](ctx, "Reply with exactly one word: parent."); err != nil {
+			return err
+		}
+		ad.mu.Lock()
+		for id := range ad.sessions {
+			parent = id
+		}
+		ad.mu.Unlock()
+		conn := ad.current()
+		callCtx, cancelCall := context.WithTimeout(ctx, requestTimeout)
+		_, err := conn.call(callCtx, "thread/archive", map[string]any{"threadId": parent})
+		cancelCall()
+		if err != nil {
+			return fmt.Errorf("archive parent out of band: %w", err)
+		}
+		fork, err := session.Fork(ctx, "forked")
+		if err != nil {
+			return fmt.Errorf("fork of an archived parent: %w", err)
+		}
+		text, err := fork.Generate[gimble.Text](ctx, "Reply with exactly one word: child.")
+		if err != nil {
+			return fmt.Errorf("turn on the fork: %w", err)
+		}
+		if strings.TrimSpace(string(text)) == "" {
+			t.Fatal("fork turn returned no text")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	n := len(archived)
+	mu.Unlock()
+	if n != 2 {
+		t.Fatalf("Close archived %d threads, want 2 (the unarchived parent and its fork)", n)
+	}
+	conn := ad.current()
+	callCtx, cancelCall := context.WithTimeout(context.Background(), requestTimeout)
+	loadedRaw, err := conn.call(callCtx, "thread/loaded/list", map[string]any{})
+	cancelCall()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range append([]string(nil), archived...) {
+		if slices.Contains(loadedThreadIDs(loadedRaw), id) {
+			t.Errorf("thread %s still loaded after the run", id)
+		}
+	}
+	t.Logf("parent %s was archived, unarchived by Fork, forked, used, and both archived again by Close", parent)
+}
+
 // loadedThreadIDs decodes thread/loaded/list's result, whose entries have
 // appeared as a bare id, {"id":...}, or {"thread":{"id":...}}.
 func loadedThreadIDs(raw json.RawMessage) []string {

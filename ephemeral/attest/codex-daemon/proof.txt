@@ -230,6 +230,30 @@ Reading the evidence:
   connection and an already-cancelled cleanup context: local maps are
   empty afterwards and Close returns an error rather than a false success.
 
+### Using an archived thread again
+
+Probed 2026-09-13 against the daemon: `thread/read` works on an archived
+thread, but `thread/resume` and `thread/fork` answer
+`session <id> is archived. Run codex unarchive <id> to unarchive it first`
+until `thread/unarchive`, after which both work. Since Close archives every
+thread whose scope ended, the adapter's `callThread` (codex/codex.go) wraps
+thread/resume and thread/fork: on that answer it unarchives the thread and
+retries once. `TestForkUnarchivesAnArchivedParent` runs a turn, archives the
+parent out from under the adapter, forks it through `Session.Fork`, runs a
+turn on the fork, and lets the scope end; both threads are archived again
+and gone from `thread/loaded/list`:
+
+    === RUN   TestForkUnarchivesAnArchivedParent
+        daemon_live_test.go:371: parent 01a09a48-718c-7bf1-9158-549442c8e19a was archived, unarchived by Fork, forked, used, and both archived again by Close
+    --- PASS: TestForkUnarchivesAnArchivedParent (8.41s)
+
+A daemon quirk seen only from a hand probe, not through the adapter: a
+fork made on a raw client connection that then disconnected at once was
+left loaded with no rollout on disk, and the daemon refuses to archive
+(`no rollout found`), delete (`thread is not persisted`), or resume it. It
+stays loaded until the daemon restarts. The adapter's own unused forks
+archive normally (`TestCloseArchivesThreadsWithoutTouchingTheDaemon`).
+
 ### What was left out and why
 
 - The unsubscribe version of this commit was what pushed the shared daemon
